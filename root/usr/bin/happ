@@ -1,0 +1,802 @@
+#!/bin/sh
+# happ — бэкенд приложения «VPN» (luci-app-happ)
+# Управляет подписками, собирает конфиг sing-box, поднимает маршрутизацию и DNS.
+# Все команды печатают JSON, чтобы их мог вызывать веб-интерфейс.
+
+DIR="${HAPP_DIR:-/etc/happ}"
+RUN="${HAPP_RUN:-/var/run/happ}"
+LIB="${HAPP_LIB:-/usr/share/happ}"
+SERVERS="$DIR/servers.json"
+SOURCES="$DIR/sources.json"
+HIDDEN="$DIR/hidden.json"   # серверы подписок, удалённые пользователем: [{id,source}]
+CONFIG="$RUN/config.json"
+PIDFILE="${HAPP_PID:-/var/run/happ.pid}"
+
+TUN="happ0"
+TABLE=100
+API_PORT=9099
+MIXED_PORT=2080
+DNS_LISTEN="127.0.0.77"
+TAB="$(printf '\t')"
+
+mkdir -p "$DIR" "$RUN"
+chmod 700 "$DIR" "$RUN" 2>/dev/null   # здесь ключи и токены подписок — только root
+[ -s "$SERVERS" ] || echo '[]' > "$SERVERS"
+[ -s "$SOURCES" ] || echo '[]' > "$SOURCES"
+[ -s "$HIDDEN" ] || echo '[]' > "$HIDDEN"
+chmod 600 "$SERVERS" "$SOURCES" "$HIDDEN" 2>/dev/null
+
+PRESET_KEYS="telegram youtube discord meta x ai adult"
+
+# Подписки скачиваются «как Happ на Android»: панели (Remnawave, Marzban и др.) по этим
+# заголовкам решают, какой формат отдать, и не подсовывают заглушку «клиент не поддерживается».
+HAPP_UA_DEFAULT="Happ/3.13.0"
+HAPP_ANDROID_VER="15"
+HAPP_DEVICE_MODEL="Pixel 8"
+
+# ---------------------------------------------------------------- утилиты
+
+cfg()  { local v; v="$(uci -q get happ.main."$1" 2>/dev/null)"; [ -n "$v" ] && echo "$v" || echo "$2"; }
+cfgb() { [ "$(cfg "$1" "$2")" = "1" ]; }
+
+json_err() { jq -n -c --arg e "$1" '{ok:false,error:$e}'; }
+
+set_error() { printf '%s' "$1" > "$RUN/last_error"; }
+
+pid_alive() {
+	local p
+	[ -f "$PIDFILE" ] || return 1
+	p="$(cat "$PIDFILE" 2>/dev/null)"
+	[ -n "$p" ] && kill -0 "$p" 2>/dev/null
+}
+is_running() { pid_alive; }
+is_ready()   { is_running && [ -f "$RUN/up_since" ]; }
+
+sb_version() { sing-box version 2>/dev/null | head -n1 | awk '{print $3}'; }
+
+api() {
+	# api METHOD PATH [BODY]
+	local sec; sec="$(cat "$RUN/secret" 2>/dev/null)"
+	if [ -n "$3" ]; then
+		curl -s -m "${T:-4}" -X "$1" -H "Authorization: Bearer $sec" -H 'Content-Type: application/json' -d "$3" "http://127.0.0.1:$API_PORT$2"
+	else
+		curl -s -m "${T:-4}" -X "$1" -H "Authorization: Bearer $sec" "http://127.0.0.1:$API_PORT$2"
+	fi
+}
+
+valid_ip() { # четыре числа 0–255
+	printf '%s' "$1" | awk -F. 'NF == 4 { for (i = 1; i <= 4; i++) if ($i !~ /^[0-9]+$/ || $i + 0 > 255) exit 1; exit 0 } { exit 1 }'
+}
+valid_cidr() { # IP или IP/маска (0–32)
+	case "$1" in
+		*/*) printf '%s' "${1#*/}" | grep -qE '^[0-9]{1,2}$' && [ "${1#*/}" -le 32 ] || return 1 ;;
+	esac
+	valid_ip "${1%%/*}"
+}
+
+write_atomic() { # write_atomic FILE  (stdin); файл читается только root
+	( umask 077; cat > "$1.tmp" ) && mv "$1.tmp" "$1"
+}
+
+# Блокировка: команды, меняющие серверы/настройки, не должны выполняться одновременно
+# (например, автообновление по cron и «Добавить» из веб-интерфейса).
+LOCKDIR="$RUN/lock"
+lock() {
+	local i=0 p
+	while ! mkdir "$LOCKDIR" 2>/dev/null; do
+		p="$(cat "$LOCKDIR/pid" 2>/dev/null)"
+		if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$LOCKDIR"; continue; fi
+		i=$((i + 1)); [ $i -gt 100 ] && return 1
+		sleep 1
+	done
+	echo $$ > "$LOCKDIR/pid"
+}
+unlock() { rm -rf "$LOCKDIR"; }
+locked() { # locked КОМАНДА [АРГУМЕНТЫ…]
+	lock || { json_err "Занято: выполняется другая операция. Повторите через минуту."; return 1; }
+	trap unlock EXIT
+	"$@"
+}
+
+# ---------------------------------------------------------------- настройки
+
+settings_json() {
+	local dd dev ifs pd pr
+	dd="$(uci -q get happ.main.direct_domains 2>/dev/null)"
+	dev="$(uci -q get happ.main.devices 2>/dev/null)"
+	ifs="$(uci -q get happ.main.ifaces 2>/dev/null)"
+	pd="$(uci -q get happ.main.proxy_domains 2>/dev/null)"
+	pr="$(uci -q get happ.main.presets 2>/dev/null)"
+	jq -n -c \
+		--arg scope "$(cfg scope all)" --arg pd "$pd" --arg pr "$pr" \
+		--arg mode "$(cfg mode all)" \
+		--arg dns_mode "$(cfg dns_mode vpn)" \
+		--arg remote_dns "$(cfg remote_dns 1.1.1.1)" \
+		--arg bootstrap_dns "$(cfg bootstrap_dns 77.88.8.8)" \
+		--arg kill_switch "$(cfg kill_switch 0)" \
+		--arg block_quic "$(cfg block_quic 1)" \
+		--arg block_ipv6 "$(cfg block_ipv6 1)" \
+		--arg bypass_vpn "$(cfg bypass_vpn 1)" \
+		--arg bypass_ru "$(cfg bypass_ru 0)" \
+		--arg tun_stack "$(cfg tun_stack system)" \
+		--arg mtu "$(cfg mtu 1400)" \
+		--arg log_level "$(cfg log_level warn)" \
+		--arg user_agent "$(cfg user_agent "$HAPP_UA_DEFAULT")" --arg hwid "$(get_hwid)" \
+		--arg update_interval "$(cfg update_interval 24)" \
+		--arg selected "$(cfg selected auto)" \
+		--arg auto_interval "$(cfg auto_interval 3m)" \
+		--arg auto_tolerance "$(cfg auto_tolerance 80)" \
+		--arg auto_test_url "$(cfg auto_test_url 'https://www.gstatic.com/generate_204')" \
+		--arg dd "$dd" --arg dev "$dev" --arg ifs "${ifs:-lan}" \
+		'{ scope:$scope, presets:($pr|split(" ")|map(select(length>0))), proxy_domains:($pd|split(" ")|map(select(length>0))),
+		   mode:$mode, dns_mode:$dns_mode, remote_dns:$remote_dns, bootstrap_dns:$bootstrap_dns,
+		   kill_switch:($kill_switch=="1"), block_quic:($block_quic=="1"), block_ipv6:($block_ipv6=="1"), bypass_vpn:($bypass_vpn=="1"),
+		   bypass_ru:($bypass_ru=="1"), tun_stack:$tun_stack, mtu:($mtu|tonumber), log_level:$log_level,
+		   user_agent:$user_agent, hwid:$hwid, update_interval:($update_interval|tonumber), selected:$selected,
+		   auto_interval:$auto_interval, auto_tolerance:($auto_tolerance|tonumber), auto_test_url:$auto_test_url,
+		   direct_domains:($dd|split(" ")|map(select(length>0))),
+		   devices:($dev|split(" ")|map(select(length>0))),
+		   ifaces:($ifs|split(" ")|map(select(length>0))),
+		   api_port:'"$API_PORT"', mixed_port:'"$MIXED_PORT"', dns_listen:"'"$DNS_LISTEN"'", tun_name:"'"$TUN"'" }'
+}
+
+cmd_set() {
+	# stdin: JSON с настройками (только известные ключи)
+	local data k v t line
+	data="$(cat)"
+	printf '%s\n' "$data" | jq -e 'type=="object"' >/dev/null 2>&1 || { json_err "Некорректные настройки"; return 1; }
+	uci -q get happ.main >/dev/null 2>&1 || { uci set happ.main=happ; }
+
+	# скаляры
+	printf '%s\n' "$data" | jq -r '
+		def b: if . == true then "1" elif . == false then "0" else . end;
+		[ "scope","mode","dns_mode","remote_dns","bootstrap_dns","kill_switch","block_quic","block_ipv6","bypass_ru","bypass_vpn",
+		  "tun_stack","mtu","log_level","user_agent","update_interval","selected",
+		  "auto_interval","auto_tolerance","auto_test_url" ] as $keys
+		| $keys[] as $k | select(has($k)) | "\($k)\t\(.[$k] | b | tostring)"' |
+	while IFS="$TAB" read -r k v; do
+		case "$k" in
+			scope)          case "$v" in all|selected) ;; *) continue ;; esac ;;
+			mode)           case "$v" in all|include|exclude) ;; *) continue ;; esac ;;
+			dns_mode)       case "$v" in vpn|system) ;; *) continue ;; esac ;;
+			tun_stack)      case "$v" in system|gvisor|mixed) ;; *) continue ;; esac ;;
+			log_level)      case "$v" in trace|debug|info|warn|error) ;; *) continue ;; esac ;;
+			remote_dns|bootstrap_dns) valid_ip "$v" || continue ;;
+			kill_switch|block_quic|block_ipv6|bypass_ru|bypass_vpn) case "$v" in 0|1) ;; *) continue ;; esac ;;
+			mtu)            echo "$v" | grep -qE '^[0-9]{4}$' && [ "$v" -ge 1000 ] && [ "$v" -le 9000 ] || continue ;;
+			update_interval) echo "$v" | grep -qE '^[0-9]{1,3}$' && [ "$v" -le 720 ] || continue ;;
+			selected)       echo "$v" | grep -qE '^(auto|[0-9a-f]{8})$' || continue ;;
+			auto_interval)  echo "$v" | grep -qE '^[0-9]+(s|m|h)$' || continue ;;
+			auto_tolerance) echo "$v" | grep -qE '^[0-9]{1,4}$' && [ "$v" -le 1000 ] || continue ;;
+			auto_test_url)  case "$v" in http://*|https://*) ;; *) continue ;; esac ;;
+			user_agent)     [ ${#v} -le 80 ] || continue ;;
+		esac
+		uci set "happ.main.$k=$v"
+	done
+
+	# списки
+	for k in direct_domains proxy_domains presets devices ifaces; do
+		if printf '%s\n' "$data" | jq -e --arg k "$k" 'has($k)' >/dev/null 2>&1; then
+			uci -q delete "happ.main.$k"
+			printf '%s\n' "$data" | jq -r --arg k "$k" '.[$k][]? | tostring' | while read -r line; do
+				[ -n "$line" ] || continue
+				case "$k" in
+					devices)  valid_cidr "$line" || continue ;;
+					presets)  case " $PRESET_KEYS " in *" $line "*) ;; *) continue ;; esac ;;
+					ifaces)   echo "$line" | grep -qE '^[A-Za-z0-9_]{1,15}$' || continue ;;
+					*)        echo "$line" | grep -qE '^[A-Za-z0-9.*/:_-]{1,100}$' || continue ;;
+				esac
+				uci add_list "happ.main.$k=$line"
+			done
+		fi
+	done
+	uci commit happ
+
+	if printf '%s\n' "$data" | jq -e 'has("autostart")' >/dev/null 2>&1; then
+		if [ "$(printf '%s\n' "$data" | jq -r '.autostart')" = "true" ]; then
+			/etc/init.d/happ enable
+		else
+			/etc/init.d/happ disable
+		fi
+	fi
+	sync_cron
+	jq -n -c '{ok:true}'
+}
+
+# cron_spec ЧАСЫ — до 23 ч: «каждые N часов»; больше: раз в N/24 дней в 04:17
+cron_spec() {
+	if [ "$1" -le 23 ]; then echo "17 */$1 * * *"; else echo "17 4 */$(($1 / 24)) * *"; fi
+}
+
+sync_cron() {
+	local n f=/etc/crontabs/root
+	n="$(cfg update_interval 24)"
+	mkdir -p /etc/crontabs
+	[ -f "$f" ] || touch "$f"
+	grep -v '/usr/bin/happ update-all' "$f" > "$f.tmp" 2>/dev/null
+	if [ "$n" -gt 0 ] 2>/dev/null; then
+		echo "$(cron_spec "$n") /usr/bin/happ update-all >/dev/null 2>&1" >> "$f.tmp"
+	fi
+	if ! cmp -s "$f" "$f.tmp"; then
+		mv "$f.tmp" "$f"
+		[ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1
+	else
+		rm -f "$f.tmp"
+	fi
+}
+
+autostart_on() { ls /etc/rc.d/S*happ >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------- подписки и серверы
+
+# Постоянный идентификатор устройства (HWID): генерируется один раз и хранится на роутере.
+# Панели с лимитом устройств считают по нему, поэтому он не должен меняться между обновлениями.
+get_hwid() {
+	local f="$DIR/hwid"
+	if [ ! -s "$f" ]; then
+		tr -d '-' < /proc/sys/kernel/random/uuid | cut -c1-16 > "$f"
+		chmod 600 "$f" 2>/dev/null
+	fi
+	cat "$f"
+}
+
+# sub_curl [аргументы curl] URL — curl с заголовками Happ для Android.
+# Если пользователь задал свой User-Agent (не Happ), отправляется только он.
+sub_curl() {
+	local ua; ua="$(cfg user_agent "$HAPP_UA_DEFAULT")"
+	case "$ua" in
+		Happ/*|happ/*)
+			curl -sSL -m 12 --connect-timeout 6 -A "$ua" \
+				-H "X-Device-Os: Android" -H "X-Ver-Os: $HAPP_ANDROID_VER" \
+				-H "X-Device-Model: $HAPP_DEVICE_MODEL" -H "X-Device-Locale: ru" \
+				-H "X-Hwid: $(get_hwid)" "$@" ;;
+		*)
+			curl -sSL -m 12 --connect-timeout 6 -A "$ua" "$@" ;;
+	esac
+}
+
+# fetch_url URL OUT HEADERS
+fetch_url() {
+	sub_curl -D "$3" -o "$2" "$1" 2>"$RUN/curl.err" && [ -s "$2" ] && return 0
+	if is_ready; then
+		sub_curl -x "socks5h://127.0.0.1:$MIXED_PORT" -D "$3" -o "$2" "$1" 2>"$RUN/curl.err" && [ -s "$2" ] && return 0
+	fi
+	return 1
+}
+
+# is_stub — в только что разобранной подписке лежит заглушка вида
+# «Ваш клиент VPN не поддерживается» (панель не узнала приложение)
+is_stub() {
+	[ "$1" -le 2 ] || return 1
+	jq -r '.name // empty' "$RUN/new.jsonl" 2>/dev/null | tr 'A-Z' 'a-z' |
+		grep -qE 'не поддерж|не подде|unsupported|not supported|update (your )?(app|client)|обновите|устарел'
+}
+
+# base64 без регулярных выражений: на многих роутерах jq собран без Oniguruma
+b64dec() {
+	jq -R -s -r 'explode
+		| map(if . == 45 then 43 elif . == 95 then 47 else . end)
+		| map(select(. != 61 and . != 32 and . != 9 and . != 10 and . != 13))
+		| implode
+		| . + ("===="[0: ((4 - (length % 4)) % 4)]) | @base64d' 2>>"$RUN/parse.err"
+}
+
+# parse_err — последняя ошибка разбора (для сообщения пользователю)
+parse_err() { grep -v 'base64' "$RUN/parse.err" 2>/dev/null | head -c 200 | tr '\n' ' '; }
+
+# body_to_tsv FILE  -> TSV (ключ \t json) на stdout
+body_to_tsv() {
+	local first
+	: > "$RUN/parse.err"
+	if [ ! -s "$LIB/parse.jq" ]; then
+		echo "нет файла $LIB/parse.jq (переустановите приложение)" >> "$RUN/parse.err"; return 1
+	fi
+	first="$(head -c 400 "$1" | tr -d ' \t\r\n' | head -c 1)"
+	if [ "$first" = "[" ] || [ "$first" = "{" ]; then
+		jq -n -r --arg mode json -f "$LIB/parse.jq" < "$1" 2>>"$RUN/parse.err"
+		return
+	fi
+	if grep -q '://' "$1"; then
+		jq -R -n -r --arg mode links -f "$LIB/parse.jq" < "$1" 2>>"$RUN/parse.err"
+	else
+		b64dec < "$1" > "$1.dec"
+		jq -R -n -r --arg mode links -f "$LIB/parse.jq" < "$1.dec" 2>>"$RUN/parse.err"
+		rm -f "$1.dec"
+	fi
+}
+
+# ingest SOURCE_ID < TSV  -> $RUN/new.jsonl, печатает количество
+ingest() {
+	local id key rest n=0
+	: > "$RUN/new.jsonl"
+	while IFS="$TAB" read -r key rest; do
+		[ -n "$rest" ] || continue
+		id="$(printf '%s%s' "$1" "$key" | md5sum | cut -c1-8)"
+		printf '{"id":"%s","source":"%s",%s\n' "$id" "$1" "${rest#\{}" >> "$RUN/new.jsonl"
+		n=$((n + 1))
+	done
+	echo "$n"
+}
+
+merge_servers() { # merge_servers SRC MODE(replace|append)  — удалённые пользователем серверы не возвращаются
+	local flt='map(select(.id as $i | ($hid | map(.id) | index($i)) | not))'
+	if [ "$2" = "replace" ]; then
+		jq -c -s --arg src "$1" --slurpfile h "$HIDDEN" '($h[0] // []) as $hid | ((.[0] | map(select(.source != $src))) + (.[1:] | unique_by(.id))) | '"$flt" "$SERVERS" "$RUN/new.jsonl"
+	else
+		jq -c -s --slurpfile h "$HIDDEN" '($h[0] // []) as $hid | (.[0] + .[1:]) | unique_by(.id) | '"$flt" "$SERVERS" "$RUN/new.jsonl"
+	fi | write_atomic "$SERVERS"
+}
+
+upsert_source() { # upsert_source JSON
+	jq -c --argjson o "$1" 'map(select(.id != $o.id)) + [$o]' "$SOURCES" | write_atomic "$SOURCES"
+}
+
+hdr() { # hdr FILE NAME
+	grep -i "^$2:" "$1" 2>/dev/null | tail -n1 | cut -d: -f2- | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+add_sub() { # add_sub URL
+	local url="$1" sid body hf title info n tsv now
+	sid="$(printf '%s' "$url" | md5sum | cut -c1-8)"
+	body="$RUN/sub.body"; hf="$RUN/sub.hdr"
+	if ! fetch_url "$url" "$body" "$hf"; then
+		json_err "Не удалось скачать подписку. $(tr -d '\n' < "$RUN/curl.err" 2>/dev/null | sed -E 's#https?://[^ ]*#<ссылка>#g' | cut -c1-160)"
+		rm -f "$body" "$hf"
+		return 1
+	fi
+	n="$(body_to_tsv "$body" | ingest "$sid")"
+	if [ "$n" -gt 0 ] && is_stub "$n"; then
+		json_err "Панель подписки не признала клиент и вернула заглушку «не поддерживается». Проверьте User-Agent в «Настройки → DNS и сеть» (должен быть вида Happ/3.13.0) или лимит устройств в подписке (HWID роутера: $(get_hwid))."
+		rm -f "$body" "$hf" "$RUN/new.jsonl"
+		return 1
+	fi
+	if [ "$n" -eq 0 ]; then
+		json_err "Подписка загружена, но в ней не найдено серверов. Проверьте ссылку.$(pe="$(parse_err)"; [ -n "$pe" ] && echo " Ошибка разбора: $pe")"
+		return 1
+	fi
+	merge_servers "$sid" replace
+
+	title="$(hdr "$hf" profile-title)"
+	case "$title" in base64:*) title="$(printf '%s' "${title#base64:}" | b64dec)" ;; esac
+	[ -n "$title" ] || title="$(printf '%s' "$url" | sed -E 's#^https?://([^/:]+).*#\1#')"
+	info="$(hdr "$hf" subscription-userinfo)"
+	now="$(date +%s)"
+
+	upsert_source "$(jq -n -c --arg id "$sid" --arg url "$url" --arg name "$title" --arg info "$info" \
+		--arg support "$(hdr "$hf" support-url)" --arg page "$(hdr "$hf" profile-web-page-url)" --argjson now "$now" --argjson n "$n" '
+		def kv($k): ($info | split(";") | map(split("=") | { key: (.[0] | ltrimstr(" ")), value: (.[1] // "") })
+			| map(select(.key == $k)) | (.[0].value // "") | (tonumber? // null));
+		{ id:$id, kind:"sub", url:$url, name:$name, updated:$now, count:$n,
+		  upload:(try kv("upload") catch null), download:(try kv("download") catch null),
+		  total:(try kv("total") catch null), expire:(try kv("expire") catch null),
+		  support:(if ($support|length)>0 then $support else null end), page:(if ($page|length)>0 then $page else null end) }')"
+	rm -f "$body" "$hf"
+	jq -n -c --arg id "$sid" --arg name "$title" --argjson n "$n" '{ok:true,kind:"sub",source:$id,name:$name,added:$n}'
+}
+
+add_links() { # add_links TEXT
+	local text="$1" n total
+	printf '%s\n' "$text" > "$RUN/links.in"
+	if ! grep -q '://' "$RUN/links.in"; then
+		b64dec < "$RUN/links.in" > "$RUN/links.dec" 2>/dev/null && mv "$RUN/links.dec" "$RUN/links.in"
+	fi
+	n="$(body_to_tsv "$RUN/links.in" | ingest manual)"
+	rm -f "$RUN/links.in"
+	if [ "$n" -eq 0 ]; then
+		json_err "Не удалось распознать ссылку. Поддерживаются vless://, vmess://, trojan://, ss://, hysteria2:// и адреса подписок (https://…).$(pe="$(parse_err)"; [ -n "$pe" ] && echo " Ошибка разбора: $pe")"
+		return 1
+	fi
+	merge_servers manual append
+	total="$(jq '[.[]|select(.source=="manual")]|length' "$SERVERS")"
+	upsert_source "$(jq -n -c --argjson n "$total" --argjson now "$(date +%s)" '{id:"manual",kind:"manual",name:"Мои ключи",updated:$now,count:$n}')"
+	jq -n -c --argjson n "$n" '{ok:true,kind:"manual",source:"manual",name:"Мои ключи",added:$n}'
+}
+
+restart_if_running() {
+	if is_running; then /etc/init.d/happ restart >/dev/null 2>&1; fi
+}
+
+cmd_add() {
+	local text res
+	text="$(printf '%s' "$1" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+	[ -n "$text" ] || { json_err "Вставьте ссылку"; return 1; }
+	if printf '%s' "$text" | grep -qE '^https?://[^[:space:]]+$'; then
+		res="$(add_sub "$text")"
+	else
+		res="$(add_links "$text")"
+	fi
+	echo "$res"
+	if [ "$(printf '%s\n' "$res" | jq -r '.ok')" = "true" ]; then
+		restart_if_running
+	fi
+}
+
+cmd_refresh() { # refresh [ID]
+	local ids id url res ok=0 fail=0 before after last=""
+	before="$(md5sum < "$SERVERS")"
+	if [ -n "$1" ] && [ "$1" != "all" ]; then ids="$1"; else ids="$(jq -r '.[]|select(.kind=="sub")|.id' "$SOURCES")"; fi
+	for id in $ids; do
+		url="$(jq -r --arg id "$id" '.[]|select(.id==$id and .kind=="sub")|.url' "$SOURCES")"
+		[ -n "$url" ] || continue
+		res="$(add_sub "$url")"
+		if [ "$(printf '%s\n' "$res" | jq -r '.ok')" = "true" ]; then ok=$((ok + 1)); else fail=$((fail + 1)); last="$(printf '%s\n' "$res" | jq -r '.error')"; fi
+	done
+	after="$(md5sum < "$SERVERS")"
+	# выбранный сервер мог исчезнуть
+	local sel; sel="$(cfg selected auto)"
+	if [ "$sel" != "auto" ] && [ "$(jq --arg s "$sel" '[.[]|select(.id==$s)]|length' "$SERVERS")" = "0" ]; then
+		uci set happ.main.selected=auto; uci commit happ
+	fi
+	[ "$before" != "$after" ] && restart_if_running
+	jq -n -c --argjson ok "$ok" --argjson fail "$fail" --arg e "${last:-}" '{ok:($fail==0),updated:$ok,failed:$fail,error:$e}'
+}
+
+cmd_remove() { # remove ID (источник или одиночный сервер)
+	local id="$1" sel
+	echo "$id" | grep -qE '^[0-9a-z]{4,8}$' || { json_err "Некорректный id"; return 1; }
+	if [ "$(jq --arg id "$id" '[.[]|select(.id==$id)]|length' "$SOURCES")" != "0" ]; then
+		jq -c --arg id "$id" 'map(select(.id != $id))' "$SOURCES" | write_atomic "$SOURCES"
+		jq -c --arg id "$id" 'map(select(.source != $id))' "$SERVERS" | write_atomic "$SERVERS"
+		# вместе с подпиской забываем и список удалённых из неё серверов
+		jq -c --arg id "$id" 'map(select(.source != $id))' "$HIDDEN" | write_atomic "$HIDDEN"
+	else
+		# удалённый сервер подписки запоминаем, чтобы он не вернулся при обновлении
+		local ssrc; ssrc="$(jq -r --arg id "$id" '[.[]|select(.id==$id)][0].source // empty' "$SERVERS")"
+		if [ -n "$ssrc" ] && [ "$ssrc" != "manual" ]; then
+			jq -c --arg id "$id" --arg src "$ssrc" '(map(select(.id != $id)) + [{id:$id,source:$src}])' "$HIDDEN" | write_atomic "$HIDDEN"
+		fi
+		jq -c --arg id "$id" 'map(select(.id != $id))' "$SERVERS" | write_atomic "$SERVERS"
+		# обновить счётчик «Мои ключи»
+		jq -c --argjson n "$(jq '[.[]|select(.source=="manual")]|length' "$SERVERS")" \
+			'map(if .id=="manual" then .count=$n else . end) | map(select(.id!="manual" or .count>0))' "$SOURCES" | write_atomic "$SOURCES"
+	fi
+	sel="$(cfg selected auto)"
+	if [ "$sel" != "auto" ] && [ "$(jq --arg s "$sel" '[.[]|select(.id==$s)]|length' "$SERVERS")" = "0" ]; then
+		uci set happ.main.selected=auto; uci commit happ
+	fi
+	if [ "$(jq 'length' "$SERVERS")" = "0" ] && is_running; then
+		/etc/init.d/happ stop >/dev/null 2>&1
+	else
+		restart_if_running
+	fi
+	jq -n -c '{ok:true}'
+}
+
+cmd_clear() {
+	echo '[]' > "$SERVERS"; echo '[]' > "$SOURCES"; echo '[]' > "$HIDDEN"
+	uci set happ.main.selected=auto; uci commit happ
+	is_running && /etc/init.d/happ stop >/dev/null 2>&1
+	jq -n -c '{ok:true}'
+}
+
+cmd_select() { # select ID|auto
+	local id="$1"
+	echo "$id" | grep -qE '^(auto|[0-9a-f]{8})$' || { json_err "Некорректный id"; return 1; }
+	uci set happ.main.selected="$id"; uci commit happ
+	if is_ready; then
+		if [ "$id" = "auto" ]; then api PUT /proxies/proxy '{"name":"auto"}' >/dev/null
+		else api PUT /proxies/proxy "{\"name\":\"s-$id\"}" >/dev/null; fi
+		rm -f "$RUN/ip.json"
+	fi
+	jq -n -c --arg id "$id" '{ok:true,selected:$id}'
+}
+
+# ---------------------------------------------------------------- запуск и остановка
+
+# Адреса VPN-серверов подписки (ip proto port в $RUN/vpn_targets).
+# Трафик устройств к этим серверам пускаем мимо туннеля: иначе VPN-клиент на телефоне или
+# компьютере (с теми же серверами) оказывается «внутри» VPN роутера и перестаёт работать.
+resolve_vpn_targets() {
+	local out="$RUN/vpn_targets" bs host typ port proto ip
+	bs="$(cfg bootstrap_dns 77.88.8.8)"
+	rm -rf "$RUN/res"; mkdir -p "$RUN/res"; : > "$out.tmp"
+	jq -r '.[] | select(.supported==true and .outbound!=null) | [.server, (.outbound.type // "x"), (.port|tostring)] | @tsv' "$SERVERS" 2>/dev/null | sort -u > "$RUN/vpn_hosts.tsv"
+	while IFS="$TAB" read -r host typ port; do
+		[ -n "$host" ] && [ -n "$port" ] || continue
+		proto=tcp; case "$typ" in hysteria2|hysteria|tuic|wireguard) proto=udp ;; esac
+		if echo "$host" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+			echo "$host $proto $port" >> "$out.tmp"
+		else
+			( nslookup "$host" "$bs" 2>/dev/null | awk '/^Name:/{f=1;next} f&&/^Address/{print}' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' |
+				while read -r ip; do echo "$ip $proto $port"; done > "$RUN/res/$(printf '%s' "$host$port" | md5sum | cut -c1-12)" ) &
+		fi
+	done < "$RUN/vpn_hosts.tsv"
+	wait
+	cat "$RUN"/res/* >> "$out.tmp" 2>/dev/null
+	sort -u "$out.tmp" > "$out"; rm -rf "$out.tmp" "$RUN/res" "$RUN/vpn_hosts.tsv"
+}
+
+cmd_prepare() {
+	local ver major minor secret out
+	: > "$RUN/last_error"
+	command -v sing-box >/dev/null 2>&1 || { set_error "Не установлен sing-box. Установите: opkg update && opkg install sing-box (или apk add sing-box)"; return 1; }
+	ver="$(sb_version)"; major="${ver%%.*}"; minor="${ver#*.}"; minor="${minor%%.*}"
+	if [ "${major:-0}" -lt 1 ] || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -lt 12 ]; }; then
+		set_error "Версия sing-box ($ver) слишком старая, нужна 1.12 или новее"; return 1
+	fi
+	[ -c /dev/net/tun ] || { modprobe tun 2>/dev/null; sleep 1; }
+	[ -c /dev/net/tun ] || { set_error "Нет устройства /dev/net/tun. Установите: opkg install kmod-tun"; return 1; }
+	secret="$(cat /proc/sys/kernel/random/uuid)"
+	printf '%s' "$secret" > "$RUN/secret"; chmod 600 "$RUN/secret"
+	if ! out="$(jq -n -f "$LIB/build.jq" --slurpfile servers "$SERVERS" --argjson s "$(settings_json)" \
+			--arg secret "$secret" --arg selected "$(cfg selected auto)" --arg logfile "$RUN/sing-box.log" 2>&1 > "$CONFIG.tmp")"; then
+		set_error "$(echo "$out" | head -n3 | tr '\n' ' ')"; rm -f "$CONFIG.tmp"; return 1
+	fi
+	mv "$CONFIG.tmp" "$CONFIG"; chmod 600 "$CONFIG"
+	if ! out="$(sing-box check -c "$CONFIG" 2>&1)"; then
+		set_error "Конфиг не прошёл проверку: $(echo "$out" | head -n3 | tr '\n' ' ')"; return 1
+	fi
+	: > "$RUN/sing-box.log"
+	rm -f "$RUN/up_since" "$RUN/ip.json"
+	if cfgb bypass_vpn 1; then resolve_vpn_targets; else rm -f "$RUN/vpn_targets"; fi
+	return 0
+}
+
+cmd_run() {
+	( net_up ) >/dev/null 2>&1 &
+	exec sing-box run -D "$RUN" -c "$CONFIG"
+}
+
+del_rules() { # del_rules [-6]
+	local p
+	for p in $(ip $1 rule show 2>/dev/null | awk -F: '$1+0>=9000 && $1+0<9200 {print $1+0}' | sort -u); do
+		while ip $1 rule del pref "$p" 2>/dev/null; do :; done
+	done
+}
+
+dnsmasq_dir() {
+	local s d
+	s="$(uci -q show dhcp.@dnsmasq[0] 2>/dev/null | head -n1 | sed 's/^dhcp\.\([^=]*\)=.*/\1/')"
+	d="/tmp/dnsmasq.$s.d"
+	[ -d "$d" ] && { echo "$d"; return; }
+	ls -d /tmp/dnsmasq.*.d 2>/dev/null | head -n1
+}
+
+net_up() {
+	local i=0 n p net st addr mask dev ip ifs
+	while [ $i -lt 40 ]; do
+		ip link show "$TUN" >/dev/null 2>&1 && break
+		pid_alive || [ $i -lt 3 ] || exit 1
+		sleep 1; i=$((i + 1))
+	done
+	ip link show "$TUN" >/dev/null 2>&1 || { set_error "Интерфейс $TUN не появился. Смотрите журнал."; exit 1; }
+
+	del_rules; del_rules -6
+	ip route flush table $TABLE 2>/dev/null
+	ip link set "$TUN" up
+	# ответы приходят из туннеля с чужими адресами — строгий rp_filter их бы отбросил
+	sysctl -qw "net.ipv4.conf.$TUN.rp_filter=2" 2>/dev/null
+	ip route replace default dev "$TUN" table $TABLE metric 100
+	cfgb kill_switch 0 && ip route replace blackhole default table $TABLE metric 4096
+
+	# локальные и служебные сети всегда идут мимо туннеля
+	p=9000
+	for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 224.0.0.0/4; do
+		ip rule add to "$net" lookup main pref $p; p=$((p + 1))
+	done
+
+	ifs="$(uci -q get happ.main.ifaces 2>/dev/null)"; [ -n "$ifs" ] || ifs="lan"
+	local subnets="" devs=""
+	for n in $ifs; do
+		st="$(ubus call "network.interface.$n" status 2>/dev/null)" || continue
+		addr="$(printf '%s\n' "$st" | jsonfilter -q -e '@["ipv4-address"][0].address')"
+		mask="$(printf '%s\n' "$st" | jsonfilter -q -e '@["ipv4-address"][0].mask')"
+		dev="$(printf '%s\n' "$st" | jsonfilter -q -e '@.l3_device')"
+		[ -n "$addr" ] && [ -n "$mask" ] && subnets="$subnets $addr/$mask"
+		[ -n "$dev" ] && devs="$devs $dev"
+	done
+	for net in $subnets; do ip rule add to "$net" lookup main pref 9020; done
+
+	# VPN-серверы подписки — мимо туннеля (VPN-клиенты на телефонах и компьютерах в сети)
+	if cfgb bypass_vpn 1 && [ -s "$RUN/vpn_targets" ]; then
+		local tp tport
+		while read -r ip tp tport; do
+			[ -n "$ip" ] && [ -n "$tport" ] || continue
+			ip rule add to "$ip" ipproto "$tp" dport "$tport" lookup main pref 9030 2>/dev/null ||
+				ip rule add to "$ip" lookup main pref 9030 2>/dev/null
+		done < "$RUN/vpn_targets"
+	fi
+
+	case "$(cfg mode all)" in
+		include)
+			for ip in $(uci -q get happ.main.devices 2>/dev/null); do
+				valid_cidr "$ip" && ip rule add from "$ip" lookup $TABLE pref 9100
+			done ;;
+		exclude)
+			for ip in $(uci -q get happ.main.devices 2>/dev/null); do
+				valid_cidr "$ip" && ip rule add from "$ip" lookup main pref 9050
+			done
+			for net in $subnets; do ip rule add from "$net" lookup $TABLE pref 9100; done ;;
+		*)
+			for net in $subnets; do ip rule add from "$net" lookup $TABLE pref 9100; done ;;
+	esac
+
+	# IPv6 в туннель не отправляем — закрываем во всех режимах, иначе он утечёт мимо VPN
+	if cfgb block_ipv6 1; then
+		for dev in $devs; do
+			for net in fe80::/10 fc00::/7 ff00::/8; do ip -6 rule add iif "$dev" to "$net" lookup main pref 9090 2>/dev/null; done
+			ip -6 rule add iif "$dev" unreachable pref 9100 2>/dev/null
+		done
+	fi
+
+	# DNS: dnsmasq спрашивает sing-box, DNS-запросы уходят через VPN
+	if [ "$(cfg dns_mode vpn)" = "vpn" ]; then
+		local d; d="$(dnsmasq_dir)"
+		if [ -n "$d" ]; then
+			{ echo "server=$DNS_LISTEN"; echo "strict-order"; if cfgb kill_switch 0; then echo "no-resolv"; fi; } > "$d/happ.conf"
+			chmod 644 "$d/happ.conf"
+			/etc/init.d/dnsmasq restart >/dev/null 2>&1
+		fi
+	fi
+	date +%s > "$RUN/up_since"
+}
+
+net_down() {
+	local d f
+	del_rules; del_rules -6
+	ip route flush table $TABLE 2>/dev/null
+	d="$(dnsmasq_dir)"
+	if [ -n "$d" ] && [ -f "$d/happ.conf" ]; then
+		rm -f "$d/happ.conf"
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	fi
+	rm -f "$RUN/up_since" "$RUN/ip.json"
+}
+
+# ---------------------------------------------------------------- диагностика
+
+ip_lookup() { # через локальный proxy sing-box
+	local u r
+	for u in "https://ipwho.is/" "https://api.ip.sb/geoip" "https://api.myip.com"; do
+		r="$(curl -s -m 7 -x "socks5h://127.0.0.1:$MIXED_PORT" "$u" 2>/dev/null)" || continue
+		printf '%s\n' "$r" | jq -e '.ip' >/dev/null 2>&1 || continue
+		printf '%s\n' "$r" | jq -c '{ip:.ip, country:(.country // ""), code:((.country_code // .cc // "")|ascii_uppercase)}'
+		return 0
+	done
+	return 1
+}
+
+cmd_check() {
+	local r d ipj
+	is_ready || { jq -n -c '{ok:false,error:"VPN не запущен"}'; return 0; }
+	r="$(T=9 api GET '/proxies/proxy/delay?url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204&timeout=7000')"
+	d="$(printf '%s\n' "$r" | jq -r '.delay // empty' 2>/dev/null)"
+	if [ -z "$d" ]; then
+		jq -n -c --arg m "$(printf '%s\n' "$r" | jq -r '.message // "нет ответа"' 2>/dev/null)" '{ok:false,error:("Сервер не отвечает: "+$m)}'
+		return 0
+	fi
+	ipj="$(ip_lookup)"
+	[ -n "$ipj" ] && echo "$ipj" > "$RUN/ip.json"
+	jq -n -c --argjson d "$d" --argjson ip "${ipj:-null}" '{ok:true,delay:$d,ip:$ip}'
+}
+
+cmd_ping() { # ping [ID] — без ID меряет все серверы, с ID — только один
+	local r id="$1" d
+	is_ready || { jq -n -c '{ok:false,error:"Сначала подключитесь — пинг измеряется через VPN"}'; return 0; }
+	[ -s "$RUN/delays.json" ] || echo '{}' > "$RUN/delays.json"
+	if [ -n "$id" ]; then
+		echo "$id" | grep -qE '^[0-9a-f]{8}$' || { json_err "Некорректный id"; return 0; }
+		r="$(T=12 api GET "/proxies/s-$id/delay?url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204&timeout=8000")"
+		d="$(printf '%s\n' "$r" | jq -r 'if (.delay|type)=="number" then .delay else empty end' 2>/dev/null)"
+		if [ -n "$d" ]; then
+			jq -c --arg id "$id" --argjson d "$d" '. + {($id):$d}' "$RUN/delays.json" > "$RUN/delays.tmp" && mv "$RUN/delays.tmp" "$RUN/delays.json"
+			jq -n -c --slurpfile all "$RUN/delays.json" --argjson d "$d" '{ok:true,ms:$d,delays:$all[0]}'
+		else
+			jq -c --arg id "$id" 'del(.[$id])' "$RUN/delays.json" > "$RUN/delays.tmp" && mv "$RUN/delays.tmp" "$RUN/delays.json"
+			jq -n -c --slurpfile all "$RUN/delays.json" '{ok:false,error:"Сервер не ответил за 8 секунд",delays:$all[0]}'
+		fi
+		return 0
+	fi
+	r="$(T=15 api GET '/group/auto/delay?url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204&timeout=5000')"
+	printf '%s\n' "$r" | jq -e 'type=="object"' >/dev/null 2>&1 || { jq -n -c '{ok:false,error:"Не удалось измерить пинг"}'; return 0; }
+	printf '%s\n' "$r" | jq -c 'with_entries(select(.value|type=="number") | .key |= ltrimstr("s-"))' > "$RUN/delays.json"
+	jq -n -c --slurpfile d "$RUN/delays.json" '{ok:true,delays:$d[0]}'
+}
+
+cmd_status() {
+	local running=false ready=false active="" up=0 down=0 since=0 err="" now
+	is_running && running=true
+	is_ready && ready=true
+	if [ "$ready" = true ]; then
+		now="$(api GET /proxies/proxy | jq -r '.now // empty' 2>/dev/null)"
+		[ "$now" = "auto" ] && now="$(api GET /proxies/auto | jq -r '.now // empty' 2>/dev/null)"
+		active="${now#s-}"
+		api GET /connections > "$RUN/conn.json" 2>/dev/null
+		up="$(jq -r '.uploadTotal // 0' "$RUN/conn.json" 2>/dev/null)"
+		down="$(jq -r '.downloadTotal // 0' "$RUN/conn.json" 2>/dev/null)"
+		since="$(cat "$RUN/up_since" 2>/dev/null)"
+	fi
+	if [ "$running" = false ]; then
+		err="$(cat "$RUN/last_error" 2>/dev/null)"
+		[ -n "$err" ] || err="$(grep -iE 'fatal|error' "$RUN/sing-box.log" 2>/dev/null | tail -n1 | cut -c1-300)"
+	fi
+	local other=false mine="" p ipj=null
+	[ -s "$RUN/ip.json" ] && ipj="$(cat "$RUN/ip.json")"
+	mine="$(cat "$PIDFILE" 2>/dev/null)"
+	for p in $(pgrep -x sing-box 2>/dev/null); do [ "$p" != "$mine" ] && other=true; done
+	jq -n -c --argjson running "$running" --argjson ready "$ready" --arg active "$active" \
+		--argjson up "${up:-0}" --argjson down "${down:-0}" --argjson since "${since:-0}" --argjson now "$(date +%s)" \
+		--arg err "$err" --argjson other "$other" --argjson ip "$ipj" '
+		{ running:$running, connected:$ready, active:$active, up:$up, down:$down,
+		  uptime:(if $since>0 then ($now-$since) else 0 end), error:$err, other_singbox:$other, ip:$ip }'
+}
+
+cmd_state() {
+	local delays='{}'
+	[ -s "$RUN/delays.json" ] && delays="$(cat "$RUN/delays.json")"
+	jq -n -c \
+		--argjson servers "$(jq -c 'map(del(.outbound))' "$SERVERS")" \
+		--argjson sources "$(cat "$SOURCES")" \
+		--argjson settings "$(settings_json)" \
+		--argjson status "$(cmd_status)" \
+		--argjson delays "$delays" \
+		--arg version "$(sb_version)" \
+		--argjson autostart "$(autostart_on && echo true || echo false)" \
+		--argjson tun "$([ -c /dev/net/tun ] && echo true || echo false)" \
+		'{servers:$servers,sources:$sources,settings:($settings + {autostart:$autostart}),status:$status,delays:$delays,singbox:$version,tun:$tun}'
+}
+
+cmd_devices() {
+	[ -s /tmp/dhcp.leases ] || { echo '{"devices":[]}'; return; }
+	jq -R -n -c '{devices:[inputs | split(" ") | select(length>=4) | {mac:.[1], ip:.[2], name:(if .[3]=="*" then "" else .[3] end)}] | sort_by(.ip)}' < /tmp/dhcp.leases
+}
+
+cmd_logs() {
+	{
+		echo "== sing-box =="; tail -n 60 "$RUN/sing-box.log" 2>/dev/null
+		echo; echo "== system =="; logread -e happ 2>/dev/null | tail -n 30
+	} | jq -R -s -c '{log:.}'
+}
+
+cmd_clearlog() {
+	: > "$RUN/sing-box.log"
+	jq -n -c '{ok:true}'
+}
+
+# ---------------------------------------------------------------- самопроверка
+
+cmd_selftest() {
+	local t n
+	t='vless://00000000-0000-0000-0000-000000000000@example.com:443?type=grpc&security=tls&sni=example.com&serviceName=x#test'
+	echo "jq:       $(jq --version 2>&1)"
+	echo "curl:     $(command -v curl >/dev/null 2>&1 && echo ok || echo 'НЕ УСТАНОВЛЕН')"
+	echo "sing-box: $(command -v sing-box >/dev/null 2>&1 && sb_version || echo 'НЕ УСТАНОВЛЕН')  (нужно 1.12+)"
+	echo "User-Agent: $(cfg user_agent "$HAPP_UA_DEFAULT")   HWID: $(get_hwid)"
+	echo "tun:      $([ -c /dev/net/tun ] && echo ok || echo 'НЕТ /dev/net/tun (kmod-tun)')"
+	echo "parse.jq: $([ -s "$LIB/parse.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
+	echo "build.jq: $([ -s "$LIB/build.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
+	n="$(printf '%s\n' "$t" | jq -R -n -r --arg mode links -f "$LIB/parse.jq" 2>&1 | head -c 120)"
+	case "$n" in
+		*server_port*) echo "разбор тестовой ссылки: ok" ;;
+		*) echo "разбор тестовой ссылки: ОШИБКА: $n" ;;
+	esac
+}
+
+# ---------------------------------------------------------------- точка входа
+
+case "$1" in
+	state)      cmd_state ;;
+	status)     cmd_status ;;
+	add)        shift; locked cmd_add "$1" ;;
+	remove)     locked cmd_remove "$2" ;;
+	refresh)    locked cmd_refresh "$2" ;;
+	update-all) locked cmd_refresh all >/dev/null ;;
+	select)     locked cmd_select "$2" ;;
+	set)        locked cmd_set ;;
+	clear)      locked cmd_clear ;;
+	clearlog)   cmd_clearlog ;;
+	check)      cmd_check ;;
+	ping)       cmd_ping "$2" ;;
+	devices)    cmd_devices ;;
+	logs)       cmd_logs ;;
+	prepare)    cmd_prepare ;;
+	run)        cmd_run ;;
+	net-up)     net_up ;;
+	net-down)   net_down ;;
+	sync-cron)  sync_cron ;;
+	settings)   settings_json ;;
+	selftest)   cmd_selftest ;;
+	*)
+		echo "Использование: happ {state|status|add <текст>|remove <id>|refresh [id]|select <id|auto>|set|check|ping|logs|clearlog|clear}" >&2
+		exit 1 ;;
+esac

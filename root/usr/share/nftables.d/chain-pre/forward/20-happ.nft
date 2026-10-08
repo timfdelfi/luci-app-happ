@@ -1,0 +1,2 @@
+iifname "happ0" accept comment "VPN (happ): из туннеля"
+oifname "happ0" accept comment "VPN (happ): в туннель"

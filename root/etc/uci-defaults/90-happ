@@ -1,0 +1,8 @@
+#!/bin/sh
+# Первичная настройка после установки
+# старый User-Agent по умолчанию → Happ (иначе панели подписок отдают «клиент не поддерживается»)
+[ "$(uci -q get happ.main.user_agent)" = "v2rayN/7.0" ] && { uci set happ.main.user_agent='Happ/3.13.0'; uci commit happ; }
+/etc/init.d/happ enable
+/usr/bin/happ sync-cron >/dev/null 2>&1
+rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache 2>/dev/null
+exit 0

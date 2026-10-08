@@ -1,0 +1,14 @@
+{
+	"admin/services/happ": {
+		"title": "VPN",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "happ/main"
+		},
+		"depends": {
+			"acl": [ "luci-app-happ" ],
+			"uci": { "happ": true }
+		}
+	}
+}

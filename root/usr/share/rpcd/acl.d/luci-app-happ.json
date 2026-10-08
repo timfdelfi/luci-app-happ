@@ -1,0 +1,11 @@
+{
+	"luci-app-happ": {
+		"description": "Доступ к приложению VPN (Happ)",
+		"read": {
+			"ubus": { "happ": [ "state", "status", "devices", "logs" ] }
+		},
+		"write": {
+			"ubus": { "happ": [ "add", "remove", "refresh", "select", "set", "connect", "disconnect", "check", "ping", "clear", "clearlog" ] }
+		}
+	}
+}

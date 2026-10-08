@@ -1,0 +1,54 @@
+#!/bin/sh
+# rpcd-плагин: мост между веб-интерфейсом LuCI и /usr/bin/happ
+
+case "$1" in
+	list)
+		cat <<'JSON'
+{
+	"state":      {},
+	"status":     {},
+	"devices":    {},
+	"logs":       {},
+	"connect":    {},
+	"disconnect": {},
+	"check":      {},
+	"ping":       { "id": "string" },
+	"clear":      {},
+	"clearlog":   {},
+	"add":        { "text": "string" },
+	"remove":     { "id": "string" },
+	"refresh":    { "id": "string" },
+	"select":     { "id": "string" },
+	"set":        { "settings": "object" }
+}
+JSON
+		;;
+	call)
+		IN="$(cat)"
+		arg() { printf '%s' "$IN" | jq -r --arg k "$1" '.[$k] // empty' 2>/dev/null; }
+		case "$2" in
+			state|status|devices|logs|check|clear|clearlog)
+				/usr/bin/happ "$2" 2>/dev/null ;;
+			ping)
+				/usr/bin/happ ping "$(arg id)" 2>/dev/null ;;
+			add)
+				/usr/bin/happ add "$(arg text)" 2>/dev/null ;;
+			remove)
+				/usr/bin/happ remove "$(arg id)" 2>/dev/null ;;
+			refresh)
+				/usr/bin/happ refresh "$(arg id)" 2>/dev/null ;;
+			select)
+				/usr/bin/happ select "$(arg id)" 2>/dev/null ;;
+			set)
+				printf '%s' "$IN" | jq -c '.settings // {}' | /usr/bin/happ set 2>/dev/null ;;
+			connect)
+				/etc/init.d/happ restart >/dev/null 2>&1
+				echo '{"ok":true}' ;;
+			disconnect)
+				/etc/init.d/happ stop >/dev/null 2>&1
+				echo '{"ok":true}' ;;
+			*)
+				echo '{"ok":false,"error":"unknown method"}' ;;
+		esac
+		;;
+esac

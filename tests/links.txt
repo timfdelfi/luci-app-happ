@@ -1,0 +1,8 @@
+vless://11111111-2222-3333-4444-555555555555@185.10.20.30:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde&sid=ab12cd&type=tcp#%F0%9F%87%A9%F0%9F%87%AA%20Germany
+vless://11111111-2222-3333-4444-555555555555@bridge.example.com:443?type=grpc&security=tls&fp=firefox&alpn=h2&sni=bridge.example.com&authority=bridge.example.com&serviceName=sync.v2.ApiService#proxy
+vless://11111111-2222-3333-4444-555555555555@bridge.example.com:8443?encryption=none&security=tls&type=ws&host=cdn.example.com&path=%2Fws#WS
+vless://11111111-2222-3333-4444-555555555555@1.2.3.4:443?encryption=none&security=reality&sni=x.com&pbk=KEY&sid=1&type=xhttp&path=%2Fx#XHTTP
+trojan://pa%24%24word@trojan.example.com:443?security=tls&sni=trojan.example.com#Trojan
+ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@5.6.7.8:8388#SS
+hysteria2://hy2pass@hy.example.com:443?sni=hy.example.com&insecure=1#Hy2
+not a link
