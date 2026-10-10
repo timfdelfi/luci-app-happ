@@ -28,7 +28,7 @@ printf '%s\n' "$out" | while IFS="$(printf '\t')" read -r k f; do
 	printf '{"id":"%s","source":"t",%s\n' "$id" "${f#\{}"
 done | jq -s -c . > "$tmp/servers.json"
 S='{"remote_dns":"1.1.1.1","bootstrap_dns":"77.88.8.8","block_quic":true,"bypass_ru":true,"direct_domains":["example.org","10.1.2.0/24"],"tun_stack":"system","mtu":1400,"log_level":"warn","auto_interval":"3m","auto_tolerance":80}'
-if jq -n -f $LIB/build.jq --slurpfile servers "$tmp/servers.json" --argjson s "$S" --arg secret x --arg selected auto --arg logfile /tmp/happ.log > "$tmp/config.json"; then
+if jq -n -L $LIB -f $LIB/build.jq --slurpfile servers "$tmp/servers.json" --argjson s "$S" --arg secret x --arg selected auto --arg logfile /tmp/happ.log > "$tmp/config.json"; then
 	ok "конфиг собран"
 	jq -e '.outbounds | map(select(.type=="urltest")) | .[0] | .interval=="3m" and .tolerance==80' "$tmp/config.json" >/dev/null && ok "автовыбор: urltest с интервалом и порогом" || bad "urltest"
 	if command -v sing-box >/dev/null 2>&1; then
@@ -41,7 +41,7 @@ else
 fi
 
 echo "== пресеты (только выбранное)"
-build() { jq -n -f $LIB/build.jq --slurpfile servers "$tmp/servers.json" --argjson s "$1" --arg secret x --arg selected auto --arg logfile /tmp/happ.log; }
+build() { jq -n -L $LIB -f $LIB/build.jq --slurpfile servers "$tmp/servers.json" --argjson s "$1" --arg secret x --arg selected auto --arg logfile /tmp/happ.log; }
 B='"remote_dns":"1.1.1.1","bootstrap_dns":"77.88.8.8","block_quic":true,"tun_stack":"system","mtu":1400,"log_level":"warn"'
 cj() { printf '%s' "$cfg" | jq -e "$2" >/dev/null 2>&1 && ok "$1" || bad "$1"; }
 

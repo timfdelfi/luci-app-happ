@@ -1274,7 +1274,7 @@ return view.extend({
 		presetBox.appendChild(chipBox);
 		presetBox.appendChild(E('div', { 'class': 'hv-label' }, ['Свои сайты через VPN', E('span', {}, 'Домены или подсети, по одному в строке')]));
 		presetBox.appendChild(area('proxy_domains', s.proxy_domains, 'example.com\n203.0.113.0/24'));
-		presetBox.appendChild(E('div', { 'class': 'hv-hint' }, 'Остальной трафик идёт напрямую, но всё равно проходит через sing-box — на слабых роутерах скорость может быть ниже.'));
+		presetBox.appendChild(E('div', { 'class': 'hv-hint' }, 'Остальной трафик идёт напрямую, мимо VPN и без обработки роутером. Сервис попадает в VPN, когда его адрес запрошен через роутер.'));
 
 		/* — устройства — */
 		this.devBox = E('div', { 'class': 'hv-devs' });

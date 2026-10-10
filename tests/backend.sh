@@ -27,6 +27,7 @@ t "state: серверы без секретов (outbound вырезан)" "$r"
 t "state: источник «Мои ключи»" "$r" '.sources[0].id=="manual" and .sources[0].count==7'
 t "state: статус «выключено»" "$r" '.status.phase=="off" and .status.connected==false'
 t "state: настройки по умолчанию" "$r" '.settings.mtu==1400 and .settings.scope=="all" and .settings.block_ipv6==true'
+t "state: по умолчанию российские сайты — напрямую" "$r" '.settings.bypass_ru==true'
 
 echo "== настройки"
 r="$(printf '%s' '{"kill_switch":true,"mtu":"abc","remote_dns":"not-ip","direct_domains":["example.org","bad domain!"],"mode":"include","devices":["192.168.1.50","999.1.1.1"],"presets":["telegram","nope"]}' | $H set)"
@@ -97,6 +98,25 @@ r="$(echo '{}' | HAPP_BIN=/nonexistent $RP call state)"
 t "call при сломанном бэкенде: JSON-ошибка, не пустой ответ" "$r" '.ok==false and (.error|length)>5'
 r="$(echo '{}' | $RP call nope)"
 t "call: неизвестный метод" "$r" '.ok==false'
+
+echo "== выборочная маршрутизация"
+printf '%s' '{"scope":"selected","presets":["telegram","youtube"],"proxy_domains":["example.net","203.0.113.7","*.foo.org"],"mode":"all","devices":[]}' | $H set >/dev/null
+L="$($H selective-lists)"
+printf '%s\n' "$L" | grep -qx 'D t.me' && ok "списки: домен пресета telegram" || bad "списки: домен пресета telegram"
+printf '%s\n' "$L" | grep -qx 'C 149.154.160.0/20' && ok "списки: подсеть пресета telegram" || bad "списки: подсеть пресета telegram"
+printf '%s\n' "$L" | grep -qx 'D youtube.com' && ok "списки: пресет youtube" || bad "списки: пресет youtube"
+printf '%s\n' "$L" | grep -qx 'D example.net' && ok "списки: свой домен" || bad "списки: свой домен"
+printf '%s\n' "$L" | grep -qx 'C 203.0.113.7' && ok "списки: свой IP попадает в подсети" || bad "списки: свой IP попадает в подсети"
+printf '%s\n' "$L" | grep -qx 'D foo.org' && ok "списки: звёздочка *. снимается" || bad "списки: звёздочка *. снимается"
+printf '%s\n' "$L" | grep -q 'discord' && bad "списки: невыбранный пресет не попадает" || ok "списки: невыбранный пресет не попадает"
+N="$($H selective-nft)"
+printf '%s\n' "$N" | grep -q 'meta mark set 0x64' && ok "nft: правило пометки есть" || bad "nft: правило пометки есть"
+if command -v nft >/dev/null 2>&1 && printf '%s\n' "$N" | nft -c -f - >/dev/null 2>&1; then ok "nft: синтаксис принят nft -c"
+else echo "  --   nft -c недоступен здесь, проверка синтаксиса пропущена"; fi
+printf '%s' '{"mode":"include","devices":["192.168.1.50"]}' | $H set >/dev/null
+$H selective-nft | grep -q 'ip saddr { 192.168.1.50 }' && ok "nft: режим «только выбранные устройства» учтён" || bad "nft: режим устройств"
+printf '%s' '{"scope":"all","mode":"all","devices":[]}' | $H set >/dev/null
+$H state | jq -e '.settings.bypass_ru==true or .settings.bypass_ru==false' >/dev/null && ok "состояние: поле bypass_ru есть" || bad "состояние: bypass_ru"
 
 rm -rf "$W"
 [ $fail -eq 0 ] && echo "ТЕСТЫ БЭКЕНДА ПРОЙДЕНЫ" || echo "ЕСТЬ ОШИБКИ В БЭКЕНДЕ"

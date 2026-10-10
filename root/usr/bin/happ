@@ -117,7 +117,7 @@ settings_json() {
 		--arg block_quic "$(cfg block_quic 1)" \
 		--arg block_ipv6 "$(cfg block_ipv6 1)" \
 		--arg bypass_vpn "$(cfg bypass_vpn 1)" \
-		--arg bypass_ru "$(cfg bypass_ru 0)" \
+		--arg bypass_ru "$(cfg bypass_ru 1)" \
 		--arg tun_stack "$(cfg tun_stack system)" \
 		--arg mtu "$(cfg mtu 1400)" \
 		--arg log_level "$(cfg log_level warn)" \
@@ -536,7 +536,7 @@ cmd_prepare() {
 	[ -c /dev/net/tun ] || { set_error "Нет устройства /dev/net/tun. Установите: opkg install kmod-tun"; return 1; }
 	secret="$(cat /proc/sys/kernel/random/uuid)"
 	printf '%s' "$secret" > "$RUN/secret"; chmod 600 "$RUN/secret"
-	if ! out="$(jq -n -f "$LIB/build.jq" --slurpfile servers "$SERVERS" --argjson s "$(settings_json)" \
+	if ! out="$(jq -n -L "$LIB" -f "$LIB/build.jq" --slurpfile servers "$SERVERS" --argjson s "$(settings_json)" \
 			--arg secret "$secret" --arg selected "$(cfg selected auto)" --arg logfile "$RUN/sing-box.log" 2>&1 > "$CONFIG.tmp")"; then
 		set_error "$(echo "$out" | head -n3 | tr '\n' ' ')"; rm -f "$CONFIG.tmp"; return 1
 	fi
@@ -602,6 +602,83 @@ net_fail() { # net_fail СООБЩЕНИЕ — запомнить причину
 	exit 1
 }
 
+# ---------------------------------------------------------------- выборочная маршрутизация
+# «Только выбранные сервисы»: весь трафик в туннель НЕ заворачиваем. nftables помечает только пакеты
+# к адресам из набора vpn4 — его наполняет dnsmasq по доменам выбранных сервисов (nftset) и пресеты
+# с подсетями. Помеченные пакеты уходят в туннель, остальные идут обычной маршрутизацией мимо sing-box.
+
+SEL_MARK=0x64
+SEL_SET="vpn4"
+
+# selective_lists — строки «D домен» и «C подсеть» для выбранных пресетов и своих сайтов
+selective_lists() {
+	local keys pd
+	keys="$(uci -q get happ.main.presets 2>/dev/null | tr ' ' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+	pd="$(uci -q get happ.main.proxy_domains 2>/dev/null | tr ' ' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+	jq -n -r -L "$LIB" --argjson keys "$keys" --argjson pd "$pd" '
+		include "presets";
+		def isdigits: length > 0 and (explode | all(. >= 48 and . <= 57));
+		def is_ip: (split("/")[0]) as $a
+			| ((($a | split(".")) | length) == 4 and (($a | split(".")) | all(isdigits)))
+			  or ($a | contains(":"));
+		( $keys[] as $k | (presets[$k].domains // [])[] | "D " + . ),
+		( $keys[] as $k | (presets[$k].cidrs // [])[] | "C " + . ),
+		( $pd[] | ltrimstr("*.") | select(contains("*") | not)
+			| if is_ip then "C " + . else "D " + . end )
+	' 2>/dev/null
+}
+
+# selective_nft_conf — правила nftables для режима «выбранные»
+selective_nft_conf() {
+	local csv="" d rule
+	for d in $(uci -q get happ.main.devices 2>/dev/null); do
+		valid_cidr "$d" && csv="${csv:+$csv, }$d"
+	done
+	if [ "$(cfg scope all)" = selected ] && selective_up; then
+		ip rule add fwmark $SEL_MARK lookup $TABLE pref 9100
+	else
+		case "$(cfg mode all)" in
+			include)
+				if [ -n "$csv" ]; then rule="ip saddr { $csv } ip daddr @$SEL_SET meta mark set $SEL_MARK"; else rule=""; fi ;;
+			exclude)
+				if [ -n "$csv" ]; then rule="ip saddr != { $csv } ip daddr @$SEL_SET meta mark set $SEL_MARK"
+				else rule="ip daddr @$SEL_SET meta mark set $SEL_MARK"; fi ;;
+			*)  rule="ip daddr @$SEL_SET meta mark set $SEL_MARK" ;;
+		esac
+	fi
+	echo "table inet happ {"
+	echo "  set $SEL_SET { type ipv4_addr; flags interval, timeout; }"
+	echo "  chain pre { type filter hook prerouting priority -150; policy accept;"
+	[ -n "$rule" ] && echo "    $rule"
+	echo "  }"
+	echo "}"
+}
+
+# selective_up — включить выборочный режим; при неудаче возвращает 1 (тогда работает обычный режим)
+selective_up() {
+	local lines c
+	if ! dnsmasq --version 2>/dev/null | grep -q nftset; then
+		logger -t happ "dnsmasq собран без nftset: выборочный режим недоступен, используется обычный (установите dnsmasq-full)" 2>/dev/null
+		return 1
+	fi
+	lines="$(selective_lists)"
+	printf '%s\n' "$lines" | awk -v s="$SEL_SET" '$1=="D"{print "nftset=/" $2 "/4#inet#happ#" s}' > "$RUN/nftset.conf"
+	selective_nft_conf > "$RUN/nft.conf"
+	if ! nft -f "$RUN/nft.conf" 2>"$RUN/nft.err"; then
+		logger -t happ "nft: не удалось включить выборочный режим: $(head -c 200 "$RUN/nft.err" 2>/dev/null)" 2>/dev/null
+		rm -f "$RUN/nftset.conf"; nft delete table inet happ 2>/dev/null
+		return 1
+	fi
+	c="$(printf '%s\n' "$lines" | awk '$1=="C"{print $2}' | paste -sd, -)"
+	[ -n "$c" ] && nft add element inet happ "$SEL_SET" "{ $c }" 2>/dev/null
+	return 0
+}
+
+selective_down() {
+	nft delete table inet happ 2>/dev/null
+	rm -f "$RUN/nftset.conf" "$RUN/nft.conf"
+}
+
 net_up() {
 	local i=0 n p net st addr mask dev ip ifs
 	while [ $i -lt 40 ]; do
@@ -615,6 +692,7 @@ net_up() {
 
 	del_rules; del_rules -6
 	ip route flush table $TABLE 2>/dev/null
+	selective_down
 	ip link set "$TUN" up
 	# ответы приходят из туннеля с чужими адресами — строгий rp_filter их бы отбросил
 	sysctl -qw "net.ipv4.conf.$TUN.rp_filter=2" 2>/dev/null
@@ -671,14 +749,17 @@ net_up() {
 		done
 	fi
 
-	# DNS: dnsmasq спрашивает sing-box, DNS-запросы уходят через VPN
-	if [ "$(cfg dns_mode vpn)" = "vpn" ]; then
-		local d; d="$(dnsmasq_dir)"
-		if [ -n "$d" ]; then
-			{ echo "server=$DNS_LISTEN"; echo "strict-order"; if cfgb kill_switch 0; then echo "no-resolv"; fi; } > "$d/happ.conf"
-			chmod 644 "$d/happ.conf"
-			/etc/init.d/dnsmasq restart >/dev/null 2>&1
-		fi
+	# DNS: dnsmasq спрашивает sing-box (через VPN); в выборочном режиме он же заполняет набор адресов
+	local d; d="$(dnsmasq_dir)"
+	if [ -n "$d" ]; then
+		{
+			if [ "$(cfg dns_mode vpn)" = "vpn" ]; then
+				echo "server=$DNS_LISTEN"; echo "strict-order"; if cfgb kill_switch 0; then echo "no-resolv"; fi
+			fi
+			[ -s "$RUN/nftset.conf" ] && cat "$RUN/nftset.conf"
+		} > "$d/happ.conf"
+		chmod 644 "$d/happ.conf"
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	fi
 	date +%s > "$RUN/up_since"
 }
@@ -687,6 +768,7 @@ net_down() {
 	local d f
 	del_rules; del_rules -6
 	ip route flush table $TABLE 2>/dev/null
+	selective_down
 	d="$(dnsmasq_dir)"
 	if [ -n "$d" ] && [ -f "$d/happ.conf" ]; then
 		rm -f "$d/happ.conf"
@@ -818,6 +900,7 @@ cmd_selftest() {
 	echo "tun:      $([ -c /dev/net/tun ] && echo ok || echo 'НЕТ /dev/net/tun (kmod-tun)')"
 	echo "parse.jq: $([ -s "$LIB/parse.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
 	echo "build.jq: $([ -s "$LIB/build.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
+	echo "dnsmasq nftset (для «Только выбранные»): $(dnsmasq --version 2>/dev/null | grep -q nftset && echo ok || echo 'НЕТ — установите dnsmasq-full')"
 	n="$(printf '%s\n' "$t" | jq -R -n -r --arg mode links -f "$LIB/parse.jq" 2>&1 | head -c 120)"
 	case "$n" in
 		*server_port*) echo "разбор тестовой ссылки: ok" ;;
@@ -848,6 +931,8 @@ case "$1" in
 	run)        cmd_run ;;
 	net-up)     net_up ;;
 	net-down)   net_down ;;
+	selective-lists) selective_lists ;;
+	selective-nft)   selective_nft_conf ;;
 	sync-cron)  sync_cron ;;
 	settings)   settings_json ;;
 	selftest)   cmd_selftest ;;
