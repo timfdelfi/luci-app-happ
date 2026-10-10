@@ -12,7 +12,7 @@ echo  Дальше роутер дважды спросит пароль root (�
 echo.
 tar -czf "%TEMP%\happ-vpn.tar.gz" -C "%~dp0." .
 if errorlevel 1 goto fail
-scp -o StrictHostKeyChecking=accept-new "%TEMP%\happ-vpn.tar.gz" root@%IP%:/tmp/happ-vpn.tar.gz
+scp -O -o StrictHostKeyChecking=accept-new "%TEMP%\happ-vpn.tar.gz" root@%IP%:/tmp/happ-vpn.tar.gz
 if errorlevel 1 goto fail
 ssh root@%IP% "rm -rf /tmp/happ-vpn && mkdir -p /tmp/happ-vpn && tar xzf /tmp/happ-vpn.tar.gz -C /tmp/happ-vpn && find /tmp/happ-vpn -type f -exec sed -i 's/\r$//' {} + && sh /tmp/happ-vpn/install.sh"
 if errorlevel 1 goto fail

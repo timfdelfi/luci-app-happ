@@ -58,6 +58,9 @@ cj "неизвестный пресет игнорируется"            '.r
 cfg="$(build "{$B,\"scope\":\"all\",\"bypass_ru\":true,\"presets\":[\"telegram\"]}")"
 cj "режим «всё»: пресеты не влияют, final=proxy" '.route.final=="proxy" and .dns.final=="dns-remote" and ([.route.rules[]|select(.outbound=="proxy")]|length)==0'
 cj "режим «всё, кроме РФ»: .ru напрямую"        '.route.rules | any(.outbound=="direct" and (.domain_suffix|index(".ru")))'
+cfg="$(build "{$B,\"scope\":\"all\",\"bypass_ru\":true,\"direct_domains\":[\"example.org\"]}")"
+cj "QUIC режется после правил «напрямую»"       '([.route.rules[]|.action=="reject"]|index(true)) > ([.route.rules[]|.outbound=="direct" and has("domain_suffix")]|index(true))'
+cj "reject-правило QUIC присутствует"           '[.route.rules[]|select(.action=="reject" and .port==443)]|length==1'
 
 echo "== функции бэкенда"
 eval "$(sed -n '/^valid_ip()/,/^}/p;/^valid_cidr()/,/^}/p;/^cron_spec()/,/^}/p' root/usr/bin/happ)"
@@ -72,5 +75,9 @@ valid_cidr 10.0.0.1/ && bad "valid_cidr: пустая маска отклоне�
 [ "$(cron_spec 168)" = "17 4 */7 * *" ] && ok "cron: раз в неделю" || bad "cron: раз в неделю"
 
 rm -rf "$tmp"
+
+echo
+sh tests/backend.sh || fail=1
+echo
 [ $fail -eq 0 ] && echo "ВСЕ ТЕСТЫ ПРОЙДЕНЫ" || echo "ЕСТЬ ОШИБКИ"
 exit $fail

@@ -9,6 +9,7 @@ PIDFILE=/var/run/happ.pid
 
 start_service() {
 	[ "$(jq 'length' /etc/happ/servers.json 2>/dev/null)" -gt 0 ] 2>/dev/null || {
+		mkdir -p /var/run/happ
 		echo "Нет серверов — добавьте ссылку в разделе Службы → VPN" > /var/run/happ/last_error 2>/dev/null
 		return 0
 	}

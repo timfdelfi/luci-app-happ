@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>happ ui harness</title>
+<style>body{margin:0;padding:24px;font-family:sans-serif}body.dark{background:#12141a}body.light{background:#f0f2f5}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:99}.modal>div{background:#fff;padding:20px;border-radius:8px;max-width:420px}</style></head>
+<body><script>
+/* Стенд: эмулирует то, что LuCI даёт представлению (E, rpc, ui) и подменяет бэкенд. */
+window.__calls = [];
+function isNode(x){ return x && x.nodeType; }
+window.E = function (tag, attrs, kids) {
+  var n = document.createElement(tag);
+  if (attrs != null && (Array.isArray(attrs) || typeof attrs !== 'object' || isNode(attrs))) { kids = attrs; attrs = null; }
+  if (attrs) for (var k in attrs) {
+    var v = attrs[k];
+    if (typeof v === 'function') n.addEventListener(k, v);
+    else if (typeof v === 'object') n.setAttribute(k, JSON.stringify(v));
+    else n.setAttribute(k, v);
+  }
+  if (kids != null) {
+    if (Array.isArray(kids)) kids.forEach(function (c) {
+      if (isNode(c)) n.appendChild(c);
+      else n.appendChild(document.createTextNode('' + c));   /* как LuCI: null → «null», ловим такие баги */
+    });
+    else if (isNode(kids)) n.appendChild(kids);
+    else n.appendChild(document.createTextNode('' + kids));
+  }
+  return n;
+};
+window.MOCK = null;
+var rpc = { declare: function (o) { return function () {
+  var a = [].slice.call(arguments); window.__calls.push(o.method + (a.length ? ' ' + JSON.stringify(a).slice(0,80) : ''));
+  return new Promise(function (res, rej) { setTimeout(function () {
+    try { res(window.MOCK[o.method].apply(null, a)); } catch (e) { rej(e); } }, window.MOCK_LAG || 30); });
+}; } };
+var ui = { showModal: function (t, kids) {
+  var m = E('div', { 'class': 'modal', id: 'modal' }, [E('div', {}, [E('h4', {}, t)].concat(kids))]); document.body.appendChild(m); },
+  hideModal: function () { var m = document.getElementById('modal'); if (m) m.remove(); } };
+var view = { extend: function (o) { return o; } };
+
+window.start = function (src) {
+  var body = src.replace(/^'use strict';/m, '').replace(/^'require [^']+';$/mg, '');
+  var impl = new Function('view', 'rpc', 'ui', 'E', body)(view, rpc, ui, E);
+  window.V = impl;
+  return impl.load().then(function (st) { var root = impl.render(st); document.body.appendChild(root); return root; });
+};
+</script></body></html>

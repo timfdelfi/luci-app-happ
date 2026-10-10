@@ -49,7 +49,7 @@
 **Linux / macOS / вручную**
 
 ```
-scp happ-vpn.tar.gz root@192.168.1.1:/tmp/
+scp -O happ-vpn.tar.gz root@192.168.1.1:/tmp/
 ssh root@192.168.1.1 "mkdir -p /tmp/happ-vpn && tar xzf /tmp/happ-vpn.tar.gz -C /tmp/happ-vpn && sh /tmp/happ-vpn/install.sh"
 ```
 

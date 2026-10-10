@@ -130,8 +130,6 @@ def is_domainlike: is_ip | not;
           { action: "sniff" },
           { protocol: "dns", action: "hijack-dns" },
           { ip_is_private: true, outbound: "direct" } ]
-        # QUIC (UDP/443) режем, чтобы браузеры уходили на TCP — через прокси UDP работает не везде
-        + (if $quic and ($sel | not) then [{ network: "udp", port: 443, action: "reject" }] else [] end)
         + (if ($dd_ips | length) > 0 then [{ ip_cidr: $dd_ips, outbound: "direct" }] else [] end)
         + (if ($dd_domains | length) > 0 then [{ domain_suffix: $dd_domains, outbound: "direct" }] else [] end)
         + (if $sel then
@@ -143,6 +141,9 @@ def is_domainlike: is_ip | not;
            else
              (if ($s.bypass_ru == true) then [{ domain_suffix: ru_suffixes, outbound: "direct" }] else [] end)
            end)
+        # QUIC (UDP/443) режем, чтобы браузеры уходили на TCP — через прокси UDP работает не везде.
+        # Правило стоит после «напрямую»: исключения и российские сайты QUIC не теряют.
+        + (if $quic and ($sel | not) then [{ network: "udp", port: 443, action: "reject" }] else [] end)
       ),
       final: (if $sel then "direct" else "proxy" end),
       default_domain_resolver: "dns-direct"

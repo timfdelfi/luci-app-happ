@@ -25,175 +25,225 @@ var rLogs       = H('logs');
 var rClear      = H('clear');
 var rClearLog   = H('clearlog');
 
-/* ───────────────────────── стили (Happ-inspired) ───────────────────────── */
+var CONNECT_TIMEOUT = 45000;   /* сколько ждём подъёма туннеля, мс */
+
+/* ───────────────────────── стили ───────────────────────── */
 
 var CSS = [
-/* root */
-'.hv{--bg:#f0f2f5;--card:#ffffff;--card2:#f7f8fa;--line:#e4e7ec;--tx:#1a1d26;--tx2:#8b92a5;--ac:#5b6af0;--ac2:#7b88f7;--acs:rgba(91,106,240,.12);--ok:#22c55e;--bad:#ef4444;--warn:#f59e0b;--sh:0 4px 24px rgba(0,0,0,.06);',
-'  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:var(--tx);width:100%;max-width:100%;margin:0;padding:0 0 24px;line-height:1.45;box-sizing:border-box;overflow-x:hidden}',
-'.hv[data-theme=dark]{--bg:#12141a;--card:#1c1f28;--card2:#252836;--line:#2e3340;--tx:#eef0f6;--tx2:#9aa3b5;--acs:rgba(123,136,247,.18);--sh:0 4px 24px rgba(0,0,0,.35)}',
-'.hv *{box-sizing:border-box}',
+/* токены */
+'.hv{--bg:#f0f2f5;--card:#fff;--card2:#f7f8fa;--line:#e4e7ec;--tx:#1a1d26;--tx2:#7d8498;--ac:#5b6af0;--ac2:#7b88f7;--acs:rgba(91,106,240,.12);--ok:#16a34a;--oks:rgba(34,197,94,.13);--bad:#ef4444;--bads:rgba(239,68,68,.1);--warn:#d97706;--warns:rgba(245,158,11,.12);--sh:0 4px 24px rgba(20,24,40,.06);--r:16px;',
+'  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:var(--tx);width:100%;max-width:100%;margin:0;padding:0 0 24px;line-height:1.45;box-sizing:border-box;overflow-x:hidden;font-size:14px}',
+'.hv[data-theme=dark]{--bg:#12141a;--card:#1c1f28;--card2:#252836;--line:#2e3340;--tx:#eef0f6;--tx2:#9aa3b5;--acs:rgba(123,136,247,.18);--ok:#4ade80;--oks:rgba(74,222,128,.14);--warn:#fbbf24;--sh:0 4px 24px rgba(0,0,0,.35)}',
+'.hv *,.hv *:before,.hv *:after{box-sizing:border-box}',
 '.hv svg{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}',
+'.hv i{font-style:normal;display:inline-flex;align-items:center;justify-content:center}',
+'.hv button{font-family:inherit}',
+'.hv :focus-visible{outline:2px solid var(--ac);outline-offset:2px}',
 
-/* top bar */
-'.hv-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px;flex-wrap:wrap;padding:0 2px}',
-'.hv-logo{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;letter-spacing:-.02em;min-width:0}',
-'.hv-logo i{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,var(--ac2),var(--ac));display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;flex:none}',
-'.hv-logo small{display:block;font-size:11px;font-weight:500;color:var(--tx2);letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-'.hv-tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:3px;flex:none}',
-'.hv-tabs button{border:0;background:none;color:var(--tx2);font:inherit;font-size:13px;font-weight:600;padding:7px 14px;border-radius:9px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap}',
+/* шапка */
+'.hv-top{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;margin:0 0 16px;flex-wrap:wrap}',
+'.hv-logo{display:flex;align-items:center;gap:12px;min-width:0}',
+'.hv-logo>i{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;font-size:19px;flex:none;box-shadow:0 6px 16px rgba(91,106,240,.35)}',
+'.hv-logo b{display:block;font-size:18px;font-weight:800;letter-spacing:-.02em;line-height:1.2}',
+'.hv-logo small{display:block;font-size:12px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+'.hv-topr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}',
+'.hv-pill{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:12.5px;font-weight:700;color:var(--tx2);white-space:nowrap}',
+'.hv-pill:before{content:"";width:8px;height:8px;border-radius:50%;background:var(--tx2);opacity:.6}',
+'.hv-pill.on{color:var(--ok);background:var(--oks);border-color:transparent}.hv-pill.on:before{background:var(--ok);opacity:1;box-shadow:0 0 0 3px var(--oks)}',
+'.hv-pill.busy{color:var(--ac)}.hv-pill.busy:before{background:var(--ac);opacity:1;animation:hvblink 1s infinite}',
+'.hv-pill.err{color:var(--bad);background:var(--bads);border-color:transparent}.hv-pill.err:before{background:var(--bad);opacity:1}',
+'.hv-tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:3px;flex:none}',
+'.hv-tabs button{border:0;background:none;color:var(--tx2);font-size:13px;font-weight:600;padding:7px 14px;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;transition:.15s}',
 '.hv-tabs button:hover{color:var(--tx)}',
 '.hv-tabs button.on{background:var(--acs);color:var(--ac)}',
 '.hv[data-theme=dark] .hv-tabs button.on{color:var(--ac2)}',
 
-/* main layout — two columns, no overflow */
-'.hv-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,380px);gap:16px;align-items:stretch;width:100%;min-width:0}',
-'@media (max-width:860px){.hv-grid{grid-template-columns:1fr}}',
+/* сетка главной */
+'.hv-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:16px;align-items:start;width:100%;min-width:0}',
+'.hv-side{position:sticky;top:12px;min-width:0}',
 
-/* cards */
-'.hv-card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);padding:16px;min-width:0;overflow:hidden}',
-'.hv-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 12px;font-size:15px;font-weight:700;min-width:0}',
-'.hv-h span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+/* карточки */
+'.hv-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:16px;min-width:0}',
+'.hv-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 12px;min-width:0}',
+'.hv-h b{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;min-width:0}',
+'.hv-h b em{font-style:normal;font-size:11.5px;font-weight:700;color:var(--tx2);background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:1px 8px}',
+'.hv-h .acts{display:flex;gap:6px}',
 
-/* buttons */
+/* кнопки */
 '.hv-ibtn{border:1px solid var(--line);background:var(--card2);color:var(--tx2);width:34px;height:34px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;padding:0;transition:.15s;flex:none}',
 '.hv-ibtn:hover{color:var(--ac);border-color:var(--ac)}',
-'.hv-ibtn.spin svg{animation:hvspin 1s linear infinite}',
-'.hv-ibtn.sm{width:26px;height:26px;border-radius:8px;font-size:13px}',
-'.hv-btn{border:0;background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;font:inherit;font-weight:700;font-size:13px;padding:0 18px;height:40px;border-radius:11px;cursor:pointer;transition:.15s;white-space:nowrap;flex:none}',
-'.hv-btn:hover{filter:brightness(1.06)}.hv-btn:active{transform:scale(.98)}.hv-btn[disabled]{opacity:.5;cursor:default}',
-'.hv-btn.ghost{background:var(--card2);color:var(--tx);border:1px solid var(--line)}',
-'.hv .hv-btn.hv-danger{background:rgba(239,68,68,.12)!important;color:#ef4444!important;border:1px solid rgba(239,68,68,.45)!important;text-shadow:none!important}',
-'.hv .hv-btn.hv-danger:hover{background:#ef4444!important;color:#fff!important}',
-'.hv-btn i,.hv-btn .hv-bi{display:inline-flex;vertical-align:middle}',
-'.hv-btn.spin svg{animation:hvspin 1s linear infinite}',
-'.hv-sr{display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;min-width:0}',
-'.hv-sr .hv-search{flex:1;margin-bottom:0}',
-'.hv-sr .hv-btn{height:38px;display:inline-flex;align-items:center;gap:6px;padding:0 14px}',
-'.hv-pgsel{grid-column:1/-1;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;margin-top:2px}',
+'.hv-ibtn.sm{width:28px;height:28px;border-radius:8px;font-size:14px}',
+'.hv-ibtn.flat{background:none;border-color:transparent}',
+'.hv-ibtn.flat:hover{background:var(--card2);border-color:var(--line)}',
+'.hv-ibtn.dng:hover{color:var(--bad);border-color:var(--bad)}',
+'.hv-ibtn.spin svg,.hv-btn.spin>i svg{animation:hvspin 1s linear infinite}',
+'.hv-btn{border:0;background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;font-weight:700;font-size:13px;padding:0 16px;height:40px;border-radius:11px;cursor:pointer;transition:.15s;white-space:nowrap;flex:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 4px 14px rgba(91,106,240,.28)}',
+'.hv-btn:hover{filter:brightness(1.06)}.hv-btn:active{transform:scale(.98)}.hv-btn[disabled]{opacity:.5;cursor:default;filter:none;transform:none}',
+'.hv-btn>i{font-size:15px}',
+'.hv-btn.ghost{background:var(--card2);color:var(--tx);border:1px solid var(--line);box-shadow:none}',
+'.hv-btn.ghost:hover{border-color:var(--ac);color:var(--ac);filter:none}',
+'.hv-btn.dng{background:var(--bads);color:var(--bad);border:1px solid rgba(239,68,68,.4);box-shadow:none}',
+'.hv-btn.dng:hover{background:var(--bad);color:#fff;filter:none}',
+'.hv-btn.sm{height:32px;font-size:12.5px;padding:0 12px;border-radius:9px}',
+
+/* добавление + поиск */
+'.hv-add{display:flex;gap:8px;align-items:flex-start;margin-bottom:12px;min-width:0}',
+'.hv .hv-in,.hv .hv-sel,.hv .hv-ta,.hv .hv-add textarea,.hv .hv-search input{width:100%;border:1.5px solid var(--line);background:var(--card2);color:var(--tx);font:inherit;font-size:13px;border-radius:11px;padding:10px 12px;outline:none;transition:border-color .15s,box-shadow .15s;resize:none;min-width:0;margin:0;box-shadow:none;max-width:100%}',
+'.hv .hv-add textarea{min-height:40px;height:40px;max-height:120px;padding-top:10px;line-height:18px;overflow:hidden}',
+'.hv .hv-in:focus,.hv .hv-sel:focus,.hv .hv-ta:focus,.hv .hv-add textarea:focus,.hv .hv-search input:focus{border-color:var(--ac);box-shadow:0 0 0 3px var(--acs)}',
+'.hv .hv-in,.hv .hv-sel{height:38px;padding:0 11px}',
+'.hv .hv-sel{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer;background-image:url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238b92a5\' stroke-width=\'3\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><polyline points=\'6 9 12 15 18 9\'/></svg>");background-repeat:no-repeat;background-position:right 11px center}',
+'.hv .hv-ta{min-height:84px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;resize:vertical}',
+'.hv .hv-in.bad,.hv .hv-sel.bad,.hv .hv-ta.bad{border-color:var(--bad);box-shadow:0 0 0 3px var(--bads)}',
+'.hv-tool{display:flex;gap:8px;align-items:center;margin-bottom:8px;min-width:0}',
+'.hv-search{position:relative;flex:1;min-width:0}',
+'.hv .hv-search input{height:38px;padding:0 12px 0 36px}',
+'.hv-search>i{position:absolute;left:12px;top:11px;color:var(--tx2);font-size:16px;pointer-events:none}',
+
+/* список серверов */
+'.hv-list{max-height:min(560px,calc(100vh - 300px));min-height:120px;overflow-y:auto;overflow-x:hidden;margin:0 -6px;padding:0 6px;min-width:0}',
+'.hv-list::-webkit-scrollbar{width:6px}.hv-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}',
+'.hv-grp{display:flex;align-items:center;gap:6px;padding:14px 4px 4px;min-width:0}',
+'.hv-grp b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--tx2)}',
+'.hv-grp em{font-style:normal;font-size:11px;color:var(--tx2);font-weight:600}',
+'.hv-usage{font-size:11.5px;color:var(--tx2);padding:0 4px 6px}',
+'.hv-bar{height:5px;border-radius:5px;background:var(--line);overflow:hidden;margin-top:5px}',
+'.hv-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ac2),var(--ac));border-radius:5px;transition:width .4s}',
+'.hv-bar.warn span{background:linear-gradient(90deg,#fbbf24,#f59e0b)}.hv-bar.crit span{background:linear-gradient(90deg,#f87171,var(--bad))}',
 '.hv-bar.inf span{width:100%;background:linear-gradient(90deg,var(--ac),var(--ac2),var(--ac));background-size:200% 100%;animation:hvflow 3s linear infinite}',
-
-/* add + search */
-'.hv-add{display:flex;gap:8px;align-items:stretch;margin-bottom:12px;min-width:0}',
-'.hv-add textarea,.hv-in,.hv-sel,.hv-ta{width:100%;border:1.5px solid var(--line);background:var(--card2);color:var(--tx);font:inherit;font-size:13px;border-radius:11px;padding:10px 12px;outline:none;transition:.15s;resize:none;min-width:0}',
-'.hv-add textarea{min-height:40px;height:40px;max-height:100px;padding-top:10px}',
-'.hv-add textarea:focus,.hv-in:focus,.hv-sel:focus,.hv-ta:focus{border-color:var(--ac);box-shadow:0 0 0 3px var(--acs)}',
-'.hv-in,.hv-sel{height:38px;padding:0 11px}',
-'.hv-ta{min-height:80px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}',
-'.hv-search{position:relative;margin-bottom:10px;min-width:0}',
-'.hv-search input{width:100%;height:38px;border:1.5px solid var(--line);background:var(--card2);color:var(--tx);font:inherit;font-size:13px;border-radius:11px;padding:0 12px 0 36px;outline:none;min-width:0}',
-'.hv-search input:focus{border-color:var(--ac)}',
-'.hv-search i{position:absolute;left:11px;top:10px;color:var(--tx2);font-size:16px;pointer-events:none}',
-
-/* server list */
-'.hv-list{max-height:min(520px,calc(100vh - 280px));overflow-y:auto;overflow-x:hidden;margin:0 -4px;padding:0 4px;min-width:0}',
-'.hv-list::-webkit-scrollbar{width:5px}',
-'.hv-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}',
-'.hv-grp{display:flex;align-items:center;gap:6px;padding:12px 4px 5px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--tx2);min-width:0}',
-'.hv-grp b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
-'.hv-grp .hv-ibtn{background:none;border:0}',
-'.hv-usage{font-size:11px;color:var(--tx2);padding:0 4px 6px}',
-'.hv-bar{height:4px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:4px}',
-'.hv-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--ac2),var(--ac));border-radius:4px}',
-
-/* server row — Happ style */
-'.hv-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;cursor:pointer;border:1.5px solid transparent;transition:.12s;margin-bottom:2px;min-width:0}',
+'.hv-row{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:13px;cursor:pointer;border:1.5px solid transparent;transition:background .12s,border-color .12s;margin-bottom:2px;min-width:0;position:relative}',
 '.hv-row:hover{background:var(--card2)}',
-'.hv-row.sel{background:var(--acs);border-color:rgba(91,106,240,.25)}',
-'.hv-row.off{opacity:.42;cursor:not-allowed}',
-'.hv-fl{width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800;letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.25)}',
-'.hv-fl.auto{background:linear-gradient(135deg,var(--ac2),var(--ac));font-size:15px}',
+'.hv-row.sel{background:var(--acs);border-color:rgba(91,106,240,.28)}',
+'.hv-row.off{opacity:.45;cursor:not-allowed}',
+'.hv-fl{width:32px;height:32px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10.5px;font-weight:800;letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.25)}',
+'.hv-fl.auto{background:linear-gradient(135deg,var(--ac2),var(--ac));font-size:15px;text-shadow:none}',
 '.hv-nm{flex:1;min-width:0;overflow:hidden}',
-'.hv-nm b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-'.hv-nm span{display:block;font-size:10.5px;color:var(--tx2);letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}',
-'.hv-ms{font-size:11px;font-weight:700;padding:2px 7px;border-radius:7px;background:var(--card2);color:var(--tx2);flex:none}',
-'.hv-ms.g{color:var(--ok);background:rgba(34,197,94,.12)}.hv-ms.y{color:var(--warn);background:rgba(245,158,11,.13)}.hv-ms.r{color:var(--bad);background:rgba(239,68,68,.12)}',
-'.hv-ck{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px}',
+'.hv-nm b{display:block;font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+'.hv-nm span{display:block;font-size:11px;color:var(--tx2);letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}',
+'.hv-ms{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:7px;background:var(--card2);color:var(--tx2);flex:none;font-variant-numeric:tabular-nums}',
+'.hv-ms.g{color:var(--ok);background:var(--oks)}.hv-ms.y{color:var(--warn);background:var(--warns)}.hv-ms.r{color:var(--bad);background:var(--bads)}',
+'.hv-ck{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;transition:.12s}',
 '.hv-row.sel .hv-ck{background:var(--ac);border-color:var(--ac)}',
-'.hv-x{opacity:0;transition:.12s;flex:none}.hv-row:hover .hv-x{opacity:1}@media(hover:none){.hv-x{opacity:1}}',
-'.hv-empty{text-align:center;padding:28px 10px 12px;color:var(--tx2);font-size:13px}',
-'.hv-empty big{display:block;font-size:36px;margin-bottom:4px}',
+'.hv-x{opacity:0;transition:.12s;flex:none}',
+'.hv-row:hover .hv-x,.hv-row:focus-within .hv-x{opacity:1}',
+'@media(hover:none){.hv-x{opacity:1}}',
+'.hv-empty{text-align:center;padding:30px 10px;color:var(--tx2);font-size:13px}',
+'.hv-hero{text-align:center;padding:26px 10px 12px}',
+'.hv-hero>i{width:56px;height:56px;border-radius:18px;background:var(--acs);color:var(--ac);font-size:26px;margin:0 auto 12px}',
+'.hv-hero h2{margin:0 0 4px;font-size:17px;font-weight:800;border:0;padding:0}',
+'.hv-hero p{margin:0 auto 14px;color:var(--tx2);max-width:380px;font-size:13px}',
+'.hv-steps{display:flex;gap:6px 14px;justify-content:center;flex-wrap:wrap;color:var(--tx2);font-size:12.5px}',
+'.hv-steps span{display:flex;align-items:center;gap:6px}',
+'.hv-steps em{font-style:normal;width:21px;height:21px;border-radius:50%;background:var(--acs);color:var(--ac);font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center}',
+'.hv-skel{height:50px;border-radius:13px;margin-bottom:6px;background:linear-gradient(90deg,var(--card2),var(--line),var(--card2));background-size:200% 100%;animation:hvflow 1.4s linear infinite}',
 
-/* right panel — power button (Happ style) */
-'.hv-right{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:420px;padding:20px 12px;position:relative}',
+/* правая панель */
+'.hv-right{display:flex;flex-direction:column;align-items:center;padding:24px 16px 18px}',
 '.hv-power{display:flex;flex-direction:column;align-items:center;width:100%}',
-'.hv-pw{position:relative;width:170px;height:170px;display:flex;align-items:center;justify-content:center;margin:0 0 16px}',
+'.hv-pw{position:relative;width:176px;height:176px;display:flex;align-items:center;justify-content:center;margin:6px 0 18px}',
 '.hv-pw:before,.hv-pw:after{content:"";position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--line);transition:.4s}',
-'.hv-pw:after{inset:-12px;opacity:.4}',
-'.hv-pb{position:relative;z-index:1;width:120px;height:120px;border-radius:50%;border:0;cursor:pointer;background:var(--card2);color:var(--tx2);font-size:48px;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 -4px 12px rgba(0,0,0,.04),0 10px 28px rgba(0,0,0,.08);transition:.3s;padding:0}',
+'.hv-pw:after{inset:-13px;opacity:.45}',
+'.hv-pb{position:relative;z-index:1;width:124px;height:124px;border-radius:50%;border:0;cursor:pointer;background:var(--card2);color:var(--tx2);font-size:50px;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 -4px 12px rgba(0,0,0,.04),0 10px 28px rgba(0,0,0,.09);transition:.3s;padding:0}',
 '.hv[data-theme=dark] .hv-pb{background:#2a2e3a;box-shadow:inset 0 -4px 12px rgba(0,0,0,.2),0 10px 28px rgba(0,0,0,.4)}',
-'.hv-pb:hover{transform:scale(1.03)}.hv-pb:active{transform:scale(.97)}',
-'.hv-pb svg{stroke-width:2.2}',
-'.hv-power.on .hv-pb{background:linear-gradient(145deg,var(--ac2),var(--ac));color:#fff;box-shadow:0 0 0 0 rgba(91,106,240,.45),0 12px 36px rgba(91,106,240,.4);animation:hvpulse 2.4s infinite}',
+'.hv-pb:hover{transform:scale(1.04);color:var(--ac)}.hv-pb:active{transform:scale(.97)}',
+'.hv-pb svg{stroke-width:2.1}',
+'.hv-power.on .hv-pb{background:linear-gradient(145deg,var(--ac2),var(--ac));color:#fff;box-shadow:0 12px 36px rgba(91,106,240,.42);animation:hvpulse 2.6s infinite}',
 '.hv-power.on .hv-pw:before{border-color:var(--ac)}',
 '.hv-power.on .hv-pw:after{border-color:var(--ac2);opacity:.4}',
 '.hv-power.busy .hv-pw:before{border-color:var(--ac) transparent transparent transparent;animation:hvspin .9s linear infinite}',
 '.hv-power.busy .hv-pb{color:var(--ac)}',
+'.hv-power.err .hv-pw:before{border-color:var(--bad)}',
 '.hv-power.err .hv-pb{color:var(--bad)}',
-'.hv-st{font-size:18px;font-weight:800;letter-spacing:-.01em;text-align:center}',
-'.hv-st.on{color:var(--ok)}',
-'.hv-sub{color:var(--tx2);font-size:13px;margin-top:2px;text-align:center;min-height:18px}',
-'.hv-timer{font-size:15px;font-weight:600;color:var(--tx2);margin-top:4px;font-variant-numeric:tabular-nums}',
+'.hv-st{font-size:19px;font-weight:800;letter-spacing:-.01em;text-align:center}',
+'.hv-st.on{color:var(--ok)}.hv-st.err{color:var(--bad)}',
+'.hv-sub{color:var(--tx2);font-size:13px;margin-top:3px;text-align:center;min-height:19px}',
+'.hv-timer{font-size:15px;font-weight:700;color:var(--tx2);margin-top:3px;font-variant-numeric:tabular-nums;min-height:22px}',
+'.hv-cur{display:flex;align-items:center;gap:11px;margin:16px 0 0;padding:10px 14px;background:var(--card2);border:1px solid var(--line);border-radius:13px;width:100%;min-width:0}',
+'.hv-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;width:100%}',
+'.hv-stat{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:9px 12px;min-width:0}',
+'.hv-stat span{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--tx2);font-weight:700;letter-spacing:.04em;text-transform:uppercase}',
+'.hv-stat b{display:block;font-size:14.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}',
+'.hv-stat small{display:block;font-size:11px;color:var(--tx2);font-weight:500;min-height:15px}',
+'.hv-actions{display:flex;gap:8px;margin-top:10px;width:100%}',
+'.hv-actions .hv-btn{flex:1}',
+'.hv-err{margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--bads);color:var(--bad);font-size:12.5px;word-break:break-word;width:100%;text-align:left}',
 
-/* current server under power */
-'.hv-cur{display:flex;align-items:center;gap:10px;margin:20px auto 0;padding:10px 14px;background:var(--card2);border:1px solid var(--line);border-radius:12px;max-width:100%;min-width:0}',
-'.hv-cur .hv-nm{flex:1;min-width:0}',
-'.hv-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;width:100%;max-width:280px}',
-'.hv-stat{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:9px 12px;min-width:0}',
-'.hv-stat span{display:block;font-size:10px;color:var(--tx2);font-weight:600;letter-spacing:.03em;text-transform:uppercase}',
-'.hv-stat b{display:block;font-size:14px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-'.hv-err{margin-top:12px;padding:10px 12px;border-radius:11px;background:rgba(239,68,68,.1);color:var(--bad);font-size:12px;word-break:break-word;max-width:100%}',
+/* баннеры */
+'.hv-banner{display:flex;gap:11px;align-items:flex-start;padding:12px 14px;border-radius:13px;margin-bottom:12px;font-size:13px;border:1px solid;min-width:0}',
+'.hv-banner.bad{background:var(--bads);border-color:rgba(239,68,68,.32)}',
+'.hv-banner.warn{background:var(--warns);border-color:rgba(245,158,11,.38)}',
+'.hv-banner>i{font-size:19px;flex:none;margin-top:1px}',
+'.hv-banner.bad>i{color:var(--bad)}.hv-banner.warn>i{color:var(--warn)}',
+'.hv-banner .b{flex:1;min-width:0;word-break:break-word}',
+'.hv-banner .b b{display:block;margin-bottom:1px}',
+'.hv-banner .hv-btn{align-self:center}',
 
-/* banners */
-'.hv-banner{display:flex;gap:10px;padding:12px 14px;border-radius:12px;margin-bottom:12px;font-size:13px;border:1px solid;min-width:0}',
-'.hv-banner.bad{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3)}',
-'.hv-banner.warn{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.35)}',
-'.hv-banner i{font-size:18px;flex:none;margin-top:1px}',
-'.hv-banner code{display:block;margin-top:5px;padding:7px 9px;border-radius:8px;background:var(--card);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;user-select:all;word-break:break-all;white-space:pre-wrap}',
-
-/* empty hero */
-'.hv-hero{text-align:center;padding:24px 10px 8px}',
-'.hv-hero h2{margin:0 0 4px;font-size:18px;font-weight:800;border:0;padding:0}',
-'.hv-hero p{margin:0 auto 14px;color:var(--tx2);max-width:360px;font-size:13px}',
-'.hv-steps{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px;color:var(--tx2);font-size:12px}',
-'.hv-steps span{display:flex;align-items:center;gap:5px}',
-'.hv-steps em{font-style:normal;width:20px;height:20px;border-radius:50%;background:var(--acs);color:var(--ac);font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center}',
-
-/* settings */
-'.hv-set{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;width:100%;min-width:0}',
-'@media (max-width:720px){.hv-set{grid-template-columns:1fr}}',
-'.hv-sec h3{margin:0 0 3px;font-size:14px;font-weight:700;border:0;padding:0}',
-'.hv-sec>p{margin:0 0 8px;color:var(--tx2);font-size:12px}',
-'.hv-opt{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line);min-width:0}',
-'.hv-opt:first-of-type{border-top:0}',
-'.hv-opt .t{flex:1;min-width:0}.hv-opt .t b{display:block;font-size:13px;font-weight:600}.hv-opt .t span{display:block;font-size:11.5px;color:var(--tx2);margin-top:1px}',
-'.hv-opt .c{flex:none;width:min(180px,40%)}',
-'.hv-col{display:block;padding:10px 0;border-top:1px solid var(--line)}',
-'.hv-col .t b{display:block;font-size:13px;font-weight:600}.hv-col .t span{display:block;font-size:11.5px;color:var(--tx2);margin:1px 0 7px}',
-'.hv-sw{position:relative;width:42px;height:24px;flex:none;display:block;cursor:pointer}',
-'.hv-sw input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer;z-index:1}',
-'.hv-sw i{position:absolute;inset:0;border-radius:24px;background:var(--line);transition:.2s}',
-'.hv-sw i:after{content:"";position:absolute;left:2px;top:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:.2s}',
-'.hv-sw input:checked+i{background:var(--ac)}.hv-sw input:checked+i:after{transform:translateX(18px)}',
-'.hv-devs{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--card2)}',
-'.hv-dev{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;cursor:pointer;border-top:1px solid var(--line);min-width:0}',
-'.hv-dev:first-child{border-top:0}.hv-dev input{width:14px;height:14px;accent-color:var(--ac);margin:0;flex:none}.hv-dev span{color:var(--tx2);margin-left:auto;flex:none}',
+/* настройки */
+'.hv-set{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;width:100%;min-width:0}',
+'.hv-colm{display:flex;flex-direction:column;gap:16px;min-width:0}',
+'.hv-sec h3{margin:0 0 2px;font-size:15px;font-weight:700;border:0;padding:0;display:flex;align-items:center;gap:8px}',
+'.hv-sec h3>i{width:26px;height:26px;border-radius:8px;background:var(--acs);color:var(--ac);font-size:14px}',
+'.hv-sec>p{margin:0 0 6px;color:var(--tx2);font-size:12.5px}',
+'.hv-opt{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-top:1px solid var(--line);min-width:0}',
+'.hv-opt.first{border-top:0}',
+'.hv-opt .t{flex:1;min-width:0}.hv-opt .t b{display:block;font-size:13.5px;font-weight:600}.hv-opt .t span{display:block;font-size:12px;color:var(--tx2);margin-top:1px}',
+'.hv-opt .c{flex:none;width:min(200px,44%)}',
+'.hv-opt.col{display:block}',
+'.hv-opt.col .c{width:auto;margin-top:8px}',
+'.hv-hint{font-size:12px;color:var(--tx2);margin-top:8px;line-height:1.5}',
+'.hv-sw{position:relative;width:44px;height:25px;flex:none;display:block;cursor:pointer}',
+'.hv-sw input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer;z-index:1;width:100%;height:100%}',
+'.hv-sw i{position:absolute;inset:0;border-radius:25px;background:var(--line);transition:.2s;display:block}',
+'.hv-sw i:after{content:"";position:absolute;left:2px;top:2px;width:21px;height:21px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:.2s}',
+'.hv-sw input:checked+i{background:var(--ac)}.hv-sw input:checked+i:after{transform:translateX(19px)}',
+'.hv-sw input:focus-visible+i{outline:2px solid var(--ac);outline-offset:2px}',
+'.hv-seg{display:flex;gap:2px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:3px;width:100%}',
+'.hv-seg button{flex:1;border:0;background:none;color:var(--tx2);font-size:12.5px;font-weight:600;padding:8px 6px;border-radius:9px;cursor:pointer;transition:.15s;line-height:1.25;min-width:0}',
+'.hv-seg button:hover{color:var(--tx)}',
+'.hv-seg button.on{background:var(--card);color:var(--ac);box-shadow:0 1px 4px rgba(20,24,40,.12)}',
+'.hv[data-theme=dark] .hv-seg button.on{color:var(--ac2)}',
+'.hv-devs{max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:11px;background:var(--card2)}',
+'.hv-dev{display:flex;align-items:center;gap:9px;padding:8px 11px;font-size:12.5px;cursor:pointer;border-top:1px solid var(--line);min-width:0;margin:0}',
+'.hv-dev:first-child{border-top:0}.hv-dev:hover{background:var(--acs)}',
+'.hv-dev input{width:15px;height:15px;accent-color:var(--ac);margin:0;flex:none}',
+'.hv-dev div{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+'.hv-dev span{color:var(--tx2);flex:none;font-variant-numeric:tabular-nums}',
 '.hv-chips{display:flex;flex-wrap:wrap;gap:8px}',
-'.hv-chip{position:relative;display:flex;align-items:center;padding:7px 13px;border:1.5px solid var(--line);background:var(--card2);border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer;user-select:none;transition:.12s}',
-'.hv-chip input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}',
+'.hv-chip{position:relative;display:flex;align-items:center;gap:6px;padding:7px 13px;border:1.5px solid var(--line);background:var(--card2);border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer;user-select:none;transition:.12s;margin:0}',
+'.hv-chip input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer;width:100%;height:100%}',
 '.hv-chip:hover{border-color:var(--ac)}',
 '.hv-chip.on{background:var(--acs);border-color:var(--ac);color:var(--ac)}',
 '.hv[data-theme=dark] .hv-chip.on{color:var(--ac2)}',
-'.hv-note{font-size:11.5px;color:var(--tx2);margin-top:8px}',
-'.hv-save{position:sticky;bottom:10px;display:flex;gap:8px;justify-content:flex-end;margin-top:14px}',
-'.hv-save .in{display:flex;gap:8px;padding:8px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--sh)}',
-'.hv-log{white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px;max-height:min(520px,calc(100vh - 220px));overflow:auto;margin:0;color:var(--tx)}',
-'.hv-foot{margin-top:14px;text-align:center;font-size:11px;color:var(--tx2)}',
-'.hv-toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,30px);background:#1e2030;color:#fff;padding:11px 18px;border-radius:12px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:9999;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.3)}',
-'.hv-toast.show{opacity:1;transform:translate(-50%,0)}.hv-toast.bad{background:#c0343a}',
+'.hv-label{font-size:13.5px;font-weight:600;margin:14px 0 6px}',
+'.hv-label span{display:block;font-size:12px;font-weight:400;color:var(--tx2);margin-top:1px}',
+'.hv-hwid{display:flex;gap:6px;align-items:center}',
+'.hv-hwid code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;user-select:all;color:var(--tx)}',
+'.hv-save{position:sticky;bottom:10px;margin-top:16px;z-index:5}',
+'.hv-save .in{display:flex;align-items:center;gap:10px;padding:9px 9px 9px 16px;background:var(--card);border:1px solid var(--line);border-radius:15px;box-shadow:0 8px 32px rgba(20,24,40,.14)}',
+'.hv-save .msg{flex:1;font-size:13px;color:var(--tx2);min-width:0}',
+'.hv-save.dirty .msg{color:var(--warn);font-weight:600}',
+'.hv-danger{margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border-color:rgba(239,68,68,.3)}',
+'.hv-danger .t b{display:block;font-size:14px}.hv-danger .t span{font-size:12.5px;color:var(--tx2)}',
+
+/* журнал */
+'.hv-log{white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.55;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px;height:min(560px,calc(100vh - 260px));min-height:200px;overflow:auto;margin:0;color:var(--tx)}',
+'.hv-log .h{display:block;margin:10px 0 4px;color:var(--ac);font-weight:700}.hv-log .h:first-child{margin-top:0}',
+'.hv-log .e{color:var(--bad)}.hv-log .w{color:var(--warn)}',
+'.hv-auto{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--tx2);margin:0 4px 0 0}',
+
+'.hv-foot{margin-top:16px;text-align:center;font-size:11.5px;color:var(--tx2)}',
+'.hv-toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,30px);background:#1e2030;color:#fff;padding:11px 18px;border-radius:13px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:9999;max-width:min(90vw,520px);box-shadow:0 8px 32px rgba(0,0,0,.3);text-align:center}',
+'.hv-toast.show{opacity:1;transform:translate(-50%,0)}.hv-toast.bad{background:#c0343a}.hv-toast.warn{background:#b45309}',
+
+/* адаптив */
+'@media (max-width:900px){.hv-grid{grid-template-columns:1fr}.hv-side{position:static;order:-1}.hv-set{grid-template-columns:1fr}.hv-list{max-height:none}}',
+'@media (max-width:560px){.hv-top{flex-direction:column;align-items:stretch}.hv-topr{justify-content:space-between}.hv-tabs{flex:1}.hv-tabs button{flex:1;justify-content:center;padding:8px 6px}.hv-tabs button span{display:none}.hv-tabs button.on span{display:inline}',
+' .hv-pill{display:none}.hv-card{padding:14px}.hv-add{flex-direction:column}.hv-add .hv-btn{width:100%}.hv-opt .c{width:min(170px,46%)}.hv-save .in{flex-wrap:wrap}.hv-save .msg{flex-basis:100%}.hv-save .hv-btn{flex:1}}',
+'@media (prefers-reduced-motion:reduce){.hv *{animation:none!important;transition:none!important}}',
 '@keyframes hvspin{to{transform:rotate(360deg)}}',
+'@keyframes hvblink{50%{opacity:.25}}',
 '@keyframes hvflow{from{background-position:0 0}to{background-position:200% 0}}',
-'@keyframes hvpulse{0%{box-shadow:0 0 0 0 rgba(91,106,240,.4),0 12px 36px rgba(91,106,240,.4)}70%{box-shadow:0 0 0 22px rgba(91,106,240,0),0 12px 36px rgba(91,106,240,.4)}100%{box-shadow:0 0 0 0 rgba(91,106,240,0),0 12px 36px rgba(91,106,240,.4)}}'
+'@keyframes hvpulse{0%{box-shadow:0 0 0 0 rgba(91,106,240,.4),0 12px 36px rgba(91,106,240,.42)}70%{box-shadow:0 0 0 24px rgba(91,106,240,0),0 12px 36px rgba(91,106,240,.42)}100%{box-shadow:0 0 0 0 rgba(91,106,240,0),0 12px 36px rgba(91,106,240,.42)}}'
 ].join('\n');
 
 /* ───────────────────────── иконки ───────────────────────── */
@@ -210,7 +260,15 @@ var ICON = {
 	search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
 	check: '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>',
 	zap: '<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
-	warn: '<svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+	warn: '<svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+	down: '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>',
+	up: '<svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>',
+	copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+	route: '<svg viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/></svg>',
+	shield: '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+	sliders: '<svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
+	laptop: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/></svg>',
+	server: '<svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>'
 };
 
 function ic(name) {
@@ -221,67 +279,96 @@ function ic(name) {
 
 /* ───────────────────────── страны / флаги ───────────────────────── */
 
+/* [код, основы слов (короткие латинские коды разбираются отдельно)] */
 var COUNTRY = [
-	['DE', /герман|german|deutsch|frankfurt|de\b/i],
-	['GB', /великобритан|britain|london|uk\b|england|british/i],
-	['US', /сша|america|united.?states|new.?york|los.?angeles|miami|chicago|us\b|usa/i],
-	['NL', /нидерланд|holland|amsterdam|netherlands|nl\b/i],
-	['SE', /швеци|sweden|stockholm|se\b/i],
-	['FI', /финлянд|finland|helsinki|fi\b/i],
-	['NO', /норвег|norway|oslo|no\b/i],
-	['PL', /польш|poland|warsaw|pl\b/i],
-	['IT', /итал|italy|milan|rome|it\b/i],
-	['RS', /серби|serbia|belgrade|rs\b/i],
-	['BG', /болгар|bulgaria|sofia|bg\b/i],
-	['HR', /хорват|croatia|zagreb|hr\b/i],
-	['CZ', /чехи|czech|prague|cz\b/i],
-	['FR', /франц|france|paris|fr\b/i],
-	['ES', /испан|spain|madrid|es\b/i],
-	['TR', /турц|turkey|istanbul|tr\b/i],
-	['JP', /япон|japan|tokyo|jp\b/i],
-	['KR', /коре|korea|seoul|kr\b/i],
-	['SG', /сингапур|singapore|sg\b/i],
-	['HK', /гонконг|hong.?kong|hk\b/i],
-	['CA', /канад|canada|toronto|ca\b/i],
-	['AU', /австрал|australia|sydney|au\b/i],
-	['CH', /швейцар|switzerland|zurich|ch\b/i],
-	['AT', /австр|austria|vienna|at\b/i],
-	['BE', /бельг|belgium|brussels|be\b/i],
-	['IE', /ирланд|ireland|dublin|ie\b/i],
-	['PT', /португал|portugal|lisbon|pt\b/i],
-	['RO', /румын|romania|bucharest|ro\b/i],
-	['UA', /украин|ukraine|kyiv|kiev|ua\b/i],
-	['RU', /росси|russia|moscow|ru\b/i],
-	['IN', /инди|india|mumbai|in\b/i],
-	['BR', /бразил|brazil|sao.?paulo|br\b/i],
-	['AE', /оаэ|dubai|uae|ae\b/i],
-	['IL', /израил|israel|tel.?aviv|il\b/i]
+	['DE', /герман|german|deutsch|frankfurt|berlin|falkenstein|nuremberg/i],
+	['GB', /великобритан|британи|britain|london|england|british|manchester/i],
+	['US', /сша|америк|america|united.?states|new.?york|los.?angeles|miami|chicago|dallas|seattle|ashburn/i],
+	['NL', /нидерланд|голланд|holland|amsterdam|netherlands/i],
+	['SE', /швеци|sweden|stockholm/i],
+	['FI', /финлянд|finland|helsinki/i],
+	['NO', /норвег|norway|oslo/i],
+	['DK', /дани[яи]|denmark|copenhagen/i],
+	['PL', /польш|poland|warsaw/i],
+	['IT', /итали|italy|milan|rome/i],
+	['RS', /серби|serbia|belgrade/i],
+	['BG', /болгар|bulgaria|sofia/i],
+	['HR', /хорват|croatia|zagreb/i],
+	['CZ', /чехи|czech|prague/i],
+	['FR', /франци|france|paris/i],
+	['ES', /испани|spain|madrid/i],
+	['TR', /турци|turkey|istanbul/i],
+	['JP', /япони|japan|tokyo/i],
+	['KR', /коре[яий]|korea|seoul/i],
+	['SG', /сингапур|singapore/i],
+	['HK', /гонконг|hong.?kong/i],
+	['CA', /канад|canada|toronto/i],
+	['AU', /австрал|australia|sydney/i],
+	['CH', /швейцар|switzerland|zurich/i],
+	['AT', /австри|austria|vienna/i],
+	['BE', /бельги|belgium|brussels/i],
+	['IE', /ирланд|ireland|dublin/i],
+	['PT', /португал|portugal|lisbon/i],
+	['RO', /румын|romania|bucharest/i],
+	['LV', /латви|latvia|riga/i],
+	['LT', /литв|lithuania|vilnius/i],
+	['EE', /эстони|estonia|tallinn/i],
+	['KZ', /казахстан|kazakhstan|almaty/i],
+	['GE', /грузи|georgia|tbilisi/i],
+	['AM', /армени|armenia|yerevan/i],
+	['UA', /украин|ukraine|kyiv|kiev/i],
+	['RU', /росси|russia|moscow/i],
+	['IN', /индия|india|mumbai/i],
+	['BR', /бразил|brazil|sao.?paulo/i],
+	['AE', /оаэ|эмират|dubai|emirates/i],
+	['IL', /израил|israel|tel.?aviv/i]
 ];
+var KNOWN_CODES = {};
+COUNTRY.forEach(function (c) { KNOWN_CODES[c[0]] = c[0]; });
+KNOWN_CODES.UK = 'GB';
 
 function flagInfo(name) {
-	var clean = String(name || ''), code = '', m;
-	m = clean.match(/^([A-Z]{2})\b/);
-	if (m) { code = m[1]; clean = clean.slice(m[0].length); }
-	if (!code) for (var i = 0; i < COUNTRY.length; i++) if (COUNTRY[i][1].test(clean)) { code = COUNTRY[i][0]; break; }
-	return { code: code || '··', name: clean.replace(/^[\s|·•\-–—]+/, '') || String(name) };
+	var raw = String(name || '').replace(/^\s+/, ''), code = '', m, i;
+
+	/* эмодзи-флаг в начале имени (два региональных индикатора) */
+	if (/^\uD83C[\uDDE6-\uDDFF]\uD83C[\uDDE6-\uDDFF]/.test(raw)) {
+		code = String.fromCharCode(raw.charCodeAt(1) - 0xDDE6 + 65) + String.fromCharCode(raw.charCodeAt(3) - 0xDDE6 + 65);
+		raw = raw.slice(4);
+	}
+	/* «DE | Frankfurt», «NL-02 …» */
+	if (!code && (m = raw.match(/^([A-Za-z]{2})(?![A-Za-z])/)) && KNOWN_CODES[m[1].toUpperCase()]) {
+		code = KNOWN_CODES[m[1].toUpperCase()];
+		raw = raw.slice(2);
+	}
+	/* слова: «Германия», «Amsterdam» */
+	if (!code) for (i = 0; i < COUNTRY.length; i++) if (COUNTRY[i][1].test(raw)) { code = COUNTRY[i][0]; break; }
+	/* отдельный токен из двух заглавных букв: «Мост US 2» */
+	if (!code && (m = raw.match(/(^|[^A-Za-z])([A-Z]{2})(?![A-Za-z])/)) && KNOWN_CODES[m[2]]) code = KNOWN_CODES[m[2]];
+
+	var clean = raw.replace(/^[\s|·•\-–—_:\[\]()]+/, '').replace(/\s+$/, '');
+	return { code: code || '··', name: clean || String(name || '') };
 }
 
 function flagColor(code) {
-	var h = 0; for (var i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) % 360;
-	return 'hsl(' + h + ',52%,48%)';
+	var h = 0, i;
+	for (i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) % 360;
+	return 'hsl(' + h + ',52%,47%)';
 }
 
-function flagEl(code, cls) {
-	var f = E('div', { 'class': 'hv-fl' + (cls ? ' ' + cls : '') }, code);
-	if (!cls) f.style.background = flagColor(code);
+function flagEl(code, auto) {
+	var f = E('div', { 'class': 'hv-fl' + (auto ? ' auto' : ''), 'aria-hidden': 'true' }, auto ? '' : code);
+	if (auto) f.innerHTML = ICON.bolt.replace('<svg', '<svg style="width:16px;height:16px"');
+	else f.style.background = flagColor(code);
 	return f;
 }
+
+/* ───────────────────────── форматирование ───────────────────────── */
 
 function fmtBytes(n) {
 	n = +n || 0;
 	var u = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'], i = 0;
 	while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-	return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+	return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)).replace('.', ',') + ' ' + u[i];
 }
 
 function fmtTime(s) {
@@ -296,9 +383,17 @@ function fmtDate(ts) {
 	return ('0' + d.getDate()).slice(-2) + '.' + ('0' + (d.getMonth() + 1)).slice(-2) + '.' + d.getFullYear();
 }
 
+function plural(n, one, few, many) {
+	var a = Math.abs(n) % 100, b = a % 10;
+	if (a > 10 && a < 20) return many;
+	if (b > 1 && b < 5) return few;
+	if (b === 1) return one;
+	return many;
+}
+
 /* ключи совпадают с PRESET_KEYS в /usr/bin/happ и presets в build.jq */
 var PRESETS = [
-	['telegram', 'Telegram', ''],
+	['telegram', 'Telegram', 'Домены и подсети Telegram'],
 	['youtube', 'YouTube', ''],
 	['discord', 'Discord', ''],
 	['meta', 'Meta', 'Instagram, Facebook, WhatsApp, Threads'],
@@ -317,13 +412,27 @@ function ipText(ip) {
 function msClass(ms) { return ms < 250 ? 'g' : ms < 600 ? 'y' : 'r'; }
 
 function isDarkTheme() {
-	var els = [document.body, document.documentElement];
-	for (var i = 0; i < els.length; i++) {
+	var els = [document.body, document.documentElement], i;
+	for (i = 0; i < els.length; i++) {
 		var c = getComputedStyle(els[i]).backgroundColor, m = c && c.match(/[\d.]+/g);
 		if (m && m.length >= 3 && !(m.length > 3 && +m[3] === 0))
 			return (0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2]) < 140;
 	}
 	return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
+function copyText(text) {
+	if (navigator.clipboard && window.isSecureContext)
+		return navigator.clipboard.writeText(text);
+	/* роутер обычно открыт по http — Clipboard API там недоступен */
+	return new Promise(function (resolve, reject) {
+		var ta = E('textarea', { style: 'position:fixed;left:-9999px;top:0', readonly: 'readonly' });
+		ta.value = text;
+		document.body.appendChild(ta);
+		ta.select();
+		try { document.execCommand('copy') ? resolve() : reject(); } catch (e) { reject(e); }
+		document.body.removeChild(ta);
+	});
 }
 
 function sw(checked) {
@@ -332,25 +441,51 @@ function sw(checked) {
 	return { el: E('label', { 'class': 'hv-sw' }, [inp, E('i')]), inp: inp };
 }
 
+/* сегмент-переключатель: items = [[значение, подпись], …] */
+function seg(items, val, onchange) {
+	var cur = val, btns = {};
+	var el = E('div', { 'class': 'hv-seg', role: 'radiogroup' });
+	var set = function (v, user) {
+		cur = v;
+		items.forEach(function (it) {
+			btns[it[0]].className = it[0] === v ? 'on' : '';
+			btns[it[0]].setAttribute('aria-checked', it[0] === v ? 'true' : 'false');
+		});
+		if (onchange) onchange(v, user);
+	};
+	items.forEach(function (it) {
+		var b = E('button', { type: 'button', role: 'radio', click: function () { if (cur !== it[0]) set(it[0], true); } }, it[1]);
+		btns[it[0]] = b;
+		el.appendChild(b);
+	});
+	set(val, false);
+	return { el: el, get: function () { return cur; }, set: set };
+}
+
 /* ───────────────────────── представление ───────────────────────── */
 
 return view.extend({
 	load: function () {
-		return rState().catch(function () { return null; });
+		return rState().then(function (s) { return s || null; }).catch(function () { return null; });
 	},
 
 	render: function (st) {
 		var self = this;
+		this.loadFailed = !st;
 		this.S = st || { servers: [], sources: [], settings: {}, status: {}, delays: {}, singbox: '', tun: true };
 		this.tab = 'main';
-		this.busy = null;
+		this.busy = null;        /* { kind: 'on' | 'off', since } */
 		this.check = null;
 		this.search = '';
-		this.timers = [];
+		this.pinged = false;
+		this.rate = { down: 0, up: 0 };
+		this._prev = null;
 		this._upSince = 0;
+		this._tick = 0;
+		this.autoLog = true;
 
 		this.root = E('div', { 'class': 'hv' });
-		this.toastEl = E('div', { 'class': 'hv-toast' });
+		this.toastEl = E('div', { 'class': 'hv-toast', role: 'status', 'aria-live': 'polite' });
 
 		var style = E('style');
 		style.textContent = CSS;
@@ -358,16 +493,16 @@ return view.extend({
 
 		/* шапка */
 		this.tabBtns = {};
-		var tabs = E('div', { 'class': 'hv-tabs' });
+		var tabs = E('div', { 'class': 'hv-tabs', role: 'tablist' });
 		[['main', 'globe', 'Подключение'], ['settings', 'gear', 'Настройки'], ['log', 'doc', 'Журнал']].forEach(function (t) {
-			var b = E('button', { click: function () { self.setTab(t[0]); } }, [ic(t[1]), E('span', {}, t[2])]);
+			var b = E('button', { type: 'button', role: 'tab', click: function () { self.setTab(t[0]); } }, [ic(t[1]), E('span', {}, t[2])]);
 			self.tabBtns[t[0]] = b;
 			tabs.appendChild(b);
 		});
-		var logoI = E('i'); logoI.innerHTML = ICON.bolt;
+		this.pillEl = E('div', { 'class': 'hv-pill' }, 'Отключено');
 		this.root.appendChild(E('div', { 'class': 'hv-top' }, [
-			E('div', { 'class': 'hv-logo' }, [logoI, E('div', {}, [E('div', {}, 'VPN'), E('small', {}, 'Вставил ссылку — нажал кнопку — работает')])]),
-			tabs
+			E('div', { 'class': 'hv-logo' }, [ic('bolt'), E('div', {}, [E('b', {}, 'VPN'), E('small', {}, 'Вставил ссылку — нажал кнопку — работает')])]),
+			E('div', { 'class': 'hv-topr' }, [this.pillEl, tabs])
 		]));
 
 		this.banners = E('div');
@@ -386,59 +521,77 @@ return view.extend({
 		this.buildSettings();
 		this.setTab('main');
 		this.afterState();
-		this.refreshAll();
 
-		/* опрос состояния */
-		var tick = 0;
-		var loop = setInterval(function () {
-			if (!document.body.contains(self.root)) { clearInterval(loop); return; }
-			tick++;
-			self.root.setAttribute('data-theme', isDarkTheme() ? 'dark' : 'light');
+		/* общие часы: таймер раз в секунду, опрос статуса и состояния по расписанию */
+		var clock = setInterval(function () {
+			if (!document.body.contains(self.root)) { clearInterval(clock); return; }
+			self._tick++;
+			if (self._tick % 3 === 0) self.root.setAttribute('data-theme', isDarkTheme() ? 'dark' : 'light');
+			if (self.phase() === 'on' && self._upSince && self.timerEl)
+				self.timerEl.textContent = fmtTime(Math.floor(Date.now() / 1000) - self._upSince);
 			if (document.hidden) return;
-			if (self.tab === 'main' || self.busy) {
-				if (tick % 10 === 0) { self.refreshAll(); if (self.phase() === 'on') self.doPing(); }
-				else self.pollStatus();
+			var fast = self.busy ? 1 : 3;
+			if (self.tab === 'main' || self.tab === 'settings' || self.busy) {
+				if (self._tick % 30 === 0) self.refreshAll();
+				else if (self._tick % fast === 0) self.pollStatus();
 			}
-			/* обновляем таймер аптайма */
-			if (self.phase() === 'on' && self._upSince) {
-				var el = self.root.querySelector('.hv-timer');
-				if (el) el.textContent = fmtTime(Math.floor(Date.now() / 1000) - self._upSince);
-			}
-		}, 3000);
+			if (self.tab === 'log' && self.autoLog && self._tick % 3 === 0) self.loadLogs(true);
+			if (self.busy && self.busy.kind === 'on' && Date.now() - self.busy.since > CONNECT_TIMEOUT)
+				self.failConnect('Туннель не поднялся за ' + (CONNECT_TIMEOUT / 1000) + ' секунд. Смотрите вкладку «Журнал».');
+		}, 1000);
 		this.root.setAttribute('data-theme', isDarkTheme() ? 'dark' : 'light');
 		setTimeout(function () { self.root.setAttribute('data-theme', isDarkTheme() ? 'dark' : 'light'); }, 300);
 
+		if (this.loadFailed) this.refreshAll();
 		return this.root;
 	},
 
 	handleSave: null, handleSaveApply: null, handleReset: null,
 
-	/* ───── утилиты интерфейса ───── */
+	/* ───── утилиты ───── */
 
-	toast: function (msg, bad) {
+	toast: function (msg, kind) {
 		var t = this.toastEl;
 		t.textContent = msg;
-		t.className = 'hv-toast show' + (bad ? ' bad' : '');
+		t.className = 'hv-toast show' + (kind === true || kind === 'bad' ? ' bad' : kind === 'warn' ? ' warn' : '');
 		clearTimeout(this._tt);
-		this._tt = setTimeout(function () { t.className = 'hv-toast' + (bad ? ' bad' : ''); }, bad ? 5200 : 2600);
+		this._tt = setTimeout(function () { t.className = t.className.replace(' show', ''); }, kind ? 5200 : 2600);
+	},
+
+	confirmDlg: function (title, text, okLabel, danger, cb) {
+		ui.showModal(title, [
+			E('p', {}, text),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn cbi-button', click: ui.hideModal }, 'Отмена'), ' ',
+				E('button', { 'class': 'btn cbi-button ' + (danger ? 'cbi-button-negative' : 'cbi-button-action'),
+					click: function () { ui.hideModal(); cb(); } }, okLabel)
+			])
+		]);
 	},
 
 	setTab: function (name) {
-		this.tab = name;
 		var self = this;
-		Object.keys(this.tabBtns).forEach(function (k) { self.tabBtns[k].className = (k === name ? 'on' : ''); });
+		this.tab = name;
+		Object.keys(this.tabBtns).forEach(function (k) {
+			self.tabBtns[k].className = (k === name ? 'on' : '');
+			self.tabBtns[k].setAttribute('aria-selected', k === name ? 'true' : 'false');
+		});
 		this.paneMain.style.display = name === 'main' ? '' : 'none';
 		this.paneSet.style.display = name === 'settings' ? '' : 'none';
 		this.paneLog.style.display = name === 'log' ? '' : 'none';
 		if (name === 'log') this.loadLogs();
 		if (name === 'settings') this.loadDevices();
+		if (name === 'main' && this._tick) this.refreshAll();
 	},
 
 	servers: function () { return this.S.servers || []; },
 	serverById: function (id) {
-		var list = this.servers();
-		for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+		var list = this.servers(), i;
+		for (i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
 		return null;
+	},
+	metaOf: function (s) {
+		return [s.proto, s.net, s.sec].filter(function (x) { return x && x !== 'none'; }).join(' / ').toUpperCase();
 	},
 
 	/* ───── главная вкладка ───── */
@@ -446,88 +599,104 @@ return view.extend({
 	buildMain: function () {
 		var self = this;
 		var left = E('div', { 'class': 'hv-card' });
-		var right = E('div', { 'class': 'hv-card hv-right' });
 
-		/* --- левая колонка: добавление + список --- */
-		var addTa = E('textarea', { placeholder: 'vless://…  или  https://подписка…', spellcheck: 'false' });
+		/* заголовок списка */
+		this.countEl = E('em', {}, '');
+		var refreshAllBtn = E('button', { type: 'button', 'class': 'hv-ibtn', title: 'Обновить все подписки', 'aria-label': 'Обновить все подписки',
+			click: function (ev) { self.doRefresh('all', ev.currentTarget); } }, [ic('refresh')]);
+		left.appendChild(E('div', { 'class': 'hv-h' }, [E('b', {}, [ic('server'), 'Серверы', this.countEl]), E('div', { 'class': 'acts' }, [refreshAllBtn])]));
+
+		/* добавление */
+		var addTa = E('textarea', { placeholder: 'vless://…  или  https://подписка…', spellcheck: 'false', rows: 1, 'aria-label': 'Ссылка на подписку или ключ' });
+		var fit = function () {
+			addTa.style.height = '40px';
+			addTa.style.height = Math.min(120, Math.max(40, addTa.scrollHeight)) + 'px';
+			addTa.style.overflowY = addTa.scrollHeight > 120 ? 'auto' : 'hidden';
+		};
+		addTa.addEventListener('input', fit);
 		addTa.addEventListener('keydown', function (ev) {
-			if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); self.doAdd(addTa); }
+			if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); self.doAdd(); }
 		});
 		this.addTa = addTa;
-		var addBtn = E('button', { 'class': 'hv-btn', click: function () { self.doAdd(addTa); } }, [ic('plus'), document.createTextNode(' Добавить')]);
-		left.appendChild(E('div', { 'class': 'hv-add' }, [addTa, addBtn]));
+		this.addFit = fit;
+		this.addBtn = E('button', { type: 'button', 'class': 'hv-btn', click: function () { self.doAdd(); } }, [ic('plus'), E('span', {}, 'Добавить')]);
+		left.appendChild(E('div', { 'class': 'hv-add' }, [addTa, this.addBtn]));
 
-		var searchIn = E('input', { type: 'search', placeholder: 'Введите текст для поиска' });
+		/* поиск и пинг */
+		var searchIn = E('input', { type: 'search', placeholder: 'Поиск по серверам', 'aria-label': 'Поиск по серверам' });
 		searchIn.addEventListener('input', function () {
 			self.search = searchIn.value.trim().toLowerCase();
 			self.drawList();
 		});
-		var pingAllLbl = document.createTextNode(' Пинг всех');
-		var pingAllBtn = E('button', { 'class': 'hv-btn ghost', title: 'Проверить пинг всех серверов',
-			click: function () { self.doPing(pingAllBtn, pingAllLbl); } }, [ic('zap'), pingAllLbl]);
-		left.appendChild(E('div', { 'class': 'hv-sr' }, [E('div', { 'class': 'hv-search' }, [ic('search'), searchIn]), pingAllBtn]));
+		this.pingAllBtn = E('button', { type: 'button', 'class': 'hv-btn ghost', title: 'Измерить пинг всех серверов',
+			click: function () { self.doPing(true); } }, [ic('zap'), E('span', {}, 'Пинг всех')]);
+		left.appendChild(E('div', { 'class': 'hv-tool' }, [E('div', { 'class': 'hv-search' }, [ic('search'), searchIn]), this.pingAllBtn]));
 
-		this.listEl = E('div', { 'class': 'hv-list' });
+		this.listEl = E('div', { 'class': 'hv-list', role: 'listbox', 'aria-label': 'Список серверов' });
 		left.appendChild(this.listEl);
 
-		/* --- правая колонка: кнопка питания --- */
+		/* правая панель */
+		var right = E('div', { 'class': 'hv-card hv-right' });
 		this.powerEl = E('div', { 'class': 'hv-power' });
-		var pw = E('div', { 'class': 'hv-pw' });
-		this.pbEl = E('button', {
-			'class': 'hv-pb', title: 'Включить / выключить VPN',
-			click: function () { self.toggle(); }
-		});
+		this.pbEl = E('button', { type: 'button', 'class': 'hv-pb', title: 'Включить / выключить VPN', 'aria-label': 'Включить или выключить VPN',
+			click: function () { self.toggle(); } });
 		this.pbEl.innerHTML = ICON.power;
-		pw.appendChild(this.pbEl);
-		this.powerEl.appendChild(pw);
-
+		this.powerEl.appendChild(E('div', { 'class': 'hv-pw' }, [this.pbEl]));
 		this.stEl = E('div', { 'class': 'hv-st' }, 'Отключено');
-		this.subEl = E('div', { 'class': 'hv-sub' }, '');
-		this.timerEl = E('div', { 'class': 'hv-timer' }, '');
+		this.subEl = E('div', { 'class': 'hv-sub' });
+		this.timerEl = E('div', { 'class': 'hv-timer' });
 		this.powerEl.appendChild(this.stEl);
 		this.powerEl.appendChild(this.subEl);
 		this.powerEl.appendChild(this.timerEl);
 
-		this.curEl = E('div');
-		this.statsEl = E('div', { 'class': 'hv-stats' });
-		this.errEl = E('div', { 'class': 'hv-err', style: 'display:none' });
-
+		this.curEl = E('div', { style: 'width:100%' });
+		this.statsEl = E('div', { style: 'width:100%' });
+		this.errEl = E('div', { 'class': 'hv-err', style: 'display:none', role: 'alert' });
 		right.appendChild(this.powerEl);
 		right.appendChild(this.curEl);
 		right.appendChild(this.statsEl);
 		right.appendChild(this.errEl);
 
-		return E('div', { 'class': 'hv-grid' }, [left, right]);
+		return E('div', { 'class': 'hv-grid' }, [left, E('div', { 'class': 'hv-side' }, [right])]);
 	},
 
 	drawList: function () {
-		var self = this, S = this.S, list = this.listEl;
+		var self = this, S = this.S, list = this.listEl, scroll = list.scrollTop;
 		list.innerHTML = '';
 		var servers = this.servers();
+		this.countEl.textContent = servers.length ? String(servers.length) : '';
+		this.countEl.style.display = servers.length ? '' : 'none';
+
 		if (!servers.length) {
+			if (this.loadFailed) {
+				list.appendChild(E('div', { 'class': 'hv-skel' }));
+				list.appendChild(E('div', { 'class': 'hv-skel' }));
+				list.appendChild(E('div', { 'class': 'hv-skel' }));
+				return;
+			}
 			list.appendChild(E('div', { 'class': 'hv-hero' }, [
-				E('h2', {}, 'Нет серверов'),
-				E('p', {}, 'Вставьте ссылку на подписку или ключ выше и нажмите «Добавить»'),
+				ic('plus'),
+				E('h2', {}, 'Пока нет серверов'),
+				E('p', {}, 'Вставьте ссылку на подписку или ключ в поле выше и нажмите «Добавить».'),
 				E('div', { 'class': 'hv-steps' }, [
-					E('span', {}, [E('em', {}, '1'), ' Вставьте ссылку']),
-					E('span', {}, [E('em', {}, '2'), ' Нажмите кнопку питания'])
+					E('span', {}, [E('em', {}, '1'), 'Вставьте ссылку']),
+					E('span', {}, [E('em', {}, '2'), 'Нажмите «Добавить»']),
+					E('span', {}, [E('em', {}, '3'), 'Включите кнопкой питания'])
 				])
 			]));
 			return;
 		}
 
-		/* Auto row */
 		var selected = (S.settings && S.settings.selected) || 'auto';
 		list.appendChild(this.rowEl({
-			id: 'auto', flag: flagEl('★', 'auto'), name: 'Авто',
+			id: 'auto', auto: true, name: 'Авто',
 			sub: 'Лучший сервер по пингу', ms: null, sel: selected === 'auto', ok: true, removable: false
 		}));
 
-		var q = this.search;
-		var groups = {}, order = [];
+		var q = this.search, groups = {}, order = [];
 		servers.forEach(function (s) {
 			var f = flagInfo(s.name);
-			if (q && (f.name + ' ' + s.server + ' ' + (s.proto || '')).toLowerCase().indexOf(q) < 0) return;
+			if (q && (f.name + ' ' + s.name + ' ' + s.server + ' ' + (s.proto || '')).toLowerCase().indexOf(q) < 0) return;
 			if (!groups[s.source]) { groups[s.source] = []; order.push(s.source); }
 			groups[s.source].push({ s: s, f: f });
 		});
@@ -541,67 +710,76 @@ return view.extend({
 			if (multi && src) {
 				list.appendChild(E('div', { 'class': 'hv-grp' }, [
 					E('b', {}, src.name || 'Серверы'),
-					src.kind === 'sub' ? E('button', { 'class': 'hv-ibtn sm', title: 'Обновить эту подписку', click: function (ev) { self.doRefresh(src.id, ev.currentTarget); } }, [ic('refresh')]) : null,
-					E('button', { 'class': 'hv-ibtn sm', title: 'Удалить', click: function () { self.doRemove(src.id, src.name); } }, [ic('trash')])
+					E('em', {}, String(groups[sid].length)),
+					src.kind === 'sub' ? E('button', { type: 'button', 'class': 'hv-ibtn sm flat', title: 'Обновить эту подписку', 'aria-label': 'Обновить подписку',
+						click: function (ev) { self.doRefresh(src.id, ev.currentTarget); } }, [ic('refresh')]) : null,
+					E('button', { type: 'button', 'class': 'hv-ibtn sm flat dng', title: 'Удалить ' + (src.kind === 'sub' ? 'подписку' : 'все ключи'), 'aria-label': 'Удалить',
+						click: function () { self.doRemove(src.id, src.name, src.kind === 'sub' ? 'подписку' : 'все ключи'); } }, [ic('trash')])
 				].filter(Boolean)));
-				if (src.total) {
-					var used = (src.upload || 0) + (src.download || 0);
-					var pct = Math.min(100, Math.round(used * 100 / src.total));
-					var line = fmtBytes(used) + ' из ' + fmtBytes(src.total) + (src.expire ? ' · до ' + fmtDate(src.expire) : '');
-					var bar = E('div', { 'class': 'hv-bar' }, [E('span')]);
-					bar.firstChild.style.width = pct + '%';
-					list.appendChild(E('div', { 'class': 'hv-usage' }, [line, bar]));
-				} else if (src.total === 0 || (src.upload || 0) + (src.download || 0) > 0) {
-					// трафик без лимита: панель отдаёт total=0 — показываем сколько израсходовано
-					var used0 = (src.upload || 0) + (src.download || 0);
-					var parts = [];
-					if (used0 > 0) parts.push('Использовано ' + fmtBytes(used0));
-					if (src.total === 0) parts.push('безлимит');
-					if (src.expire) parts.push('до ' + fmtDate(src.expire));
-					var infBar = E('div', { 'class': 'hv-bar inf' }, [E('span')]);
-					list.appendChild(E('div', { 'class': 'hv-usage' }, [parts.join(' · '), infBar]));
-				} else if (src.expire) {
-					list.appendChild(E('div', { 'class': 'hv-usage' }, 'Действует до ' + fmtDate(src.expire)));
-				}
+				var u = self.usageEl(src);
+				if (u) list.appendChild(u);
 			}
 			groups[sid].forEach(function (g) {
 				var s = g.s;
-				var meta = [s.proto, s.net, s.sec].filter(function (x) { return x && x !== 'none'; }).join(' / ').toUpperCase();
 				list.appendChild(self.rowEl({
-					id: s.id, flag: flagEl(g.f.code), name: g.f.name,
-					sub: s.supported ? meta : (s.reason || 'не поддерживается'),
-					ms: (S.delays || {})[s.id], sel: selected === s.id, ok: s.supported,
-					removable: true
+					id: s.id, flagCode: g.f.code, name: g.f.name,
+					sub: s.supported ? self.metaOf(s) : (s.reason || 'не поддерживается'),
+					ms: (S.delays || {})[s.id], sel: selected === s.id, ok: s.supported, removable: true
 				}));
 			});
 		});
 
-		if (!list.childNodes.length)
+		if (list.childNodes.length === 1 && q)
 			list.appendChild(E('div', { 'class': 'hv-empty' }, 'Ничего не найдено'));
+		list.scrollTop = scroll;
+	},
+
+	usageEl: function (src) {
+		var used = (src.upload || 0) + (src.download || 0), parts = [], bar;
+		if (src.total) {
+			var pct = Math.min(100, Math.round(used * 100 / src.total));
+			parts.push(fmtBytes(used) + ' из ' + fmtBytes(src.total));
+			if (src.expire) parts.push('до ' + fmtDate(src.expire));
+			bar = E('div', { 'class': 'hv-bar' + (pct >= 95 ? ' crit' : pct >= 80 ? ' warn' : ''), role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, [E('span')]);
+			bar.firstChild.style.width = pct + '%';
+		} else if (src.total === 0 || used > 0) {
+			/* панель отдаёт total=0 для безлимита */
+			if (used > 0) parts.push('Использовано ' + fmtBytes(used));
+			if (src.total === 0) parts.push('безлимит');
+			if (src.expire) parts.push('до ' + fmtDate(src.expire));
+			bar = E('div', { 'class': 'hv-bar inf' }, [E('span')]);
+		} else if (src.expire) {
+			return E('div', { 'class': 'hv-usage' }, 'Действует до ' + fmtDate(src.expire));
+		} else {
+			return null;
+		}
+		return E('div', { 'class': 'hv-usage' }, [parts.join(' · '), bar]);
 	},
 
 	rowEl: function (o) {
 		var self = this;
+		var pick = function () { if (o.ok) self.doSelect(o.id); else self.toast('Этот сервер не поддерживается: ' + o.sub, true); };
 		var row = E('div', {
 			'class': 'hv-row' + (o.sel ? ' sel' : '') + (o.ok ? '' : ' off'),
-			click: function () { if (o.ok) self.doSelect(o.id); else self.toast('Этот сервер не поддерживается', true); }
+			role: 'option', tabindex: '0', 'aria-selected': o.sel ? 'true' : 'false',
+			click: pick,
+			keydown: function (ev) { if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === row) { ev.preventDefault(); pick(); } }
 		}, [
-			o.flag,
-			E('div', { 'class': 'hv-nm' }, [E('b', {}, o.name), E('span', {}, o.sub)])
+			o.auto ? flagEl('', true) : flagEl(o.flagCode),
+			E('div', { 'class': 'hv-nm' }, [E('b', { title: o.name }, o.name), E('span', {}, o.sub)])
 		]);
 		if (typeof o.ms === 'number') row.appendChild(E('div', { 'class': 'hv-ms ' + msClass(o.ms) }, o.ms + ' мс'));
-		if (o.ok && o.id !== 'auto')
+		if (o.ok && !o.auto)
 			row.appendChild(E('button', {
-				'class': 'hv-ibtn sm hv-x', title: 'Пинг этого сервера',
+				type: 'button', 'class': 'hv-ibtn sm flat hv-x', title: 'Пинг этого сервера', 'aria-label': 'Пинг этого сервера',
 				click: function (ev) { ev.stopPropagation(); self.doPingOne(o.id, ev.currentTarget); }
 			}, [ic('zap')]));
 		if (o.removable)
 			row.appendChild(E('button', {
-				'class': 'hv-ibtn sm hv-x', title: 'Удалить',
-				click: function (ev) { ev.stopPropagation(); self.doRemove(o.id, o.name); }
+				type: 'button', 'class': 'hv-ibtn sm flat dng hv-x', title: 'Удалить сервер', 'aria-label': 'Удалить сервер',
+				click: function (ev) { ev.stopPropagation(); self.doRemove(o.id, o.name, 'сервер'); }
 			}, [ic('trash')]));
-		var ck = E('div', { 'class': 'hv-ck' }, o.sel ? [ic('check')] : []);
-		row.appendChild(ck);
+		row.appendChild(E('div', { 'class': 'hv-ck' }, o.sel ? [ic('check')] : []));
 		return row;
 	},
 
@@ -613,28 +791,34 @@ return view.extend({
 				return null;
 			}).filter(Boolean);
 			if ((s.proxy_domains || []).length) names.push('свои сайты');
-			return 'Только: ' + (names.join(', ') || '—');
+			return 'Через VPN: ' + (names.join(', ') || '—');
 		}
-		return s.bypass_ru ? 'Всё, кроме российских сайтов' : '';
+		return s.bypass_ru ? 'Всё, кроме российских сайтов' : 'Весь трафик через VPN';
 	},
 
-	/* ───── кнопка питания ───── */
+	/* ───── кнопка питания и статус ───── */
 
 	phase: function () {
 		var st = this.S.status || {};
+		if (this.busy && this.busy.kind === 'off') return 'busy';
 		if (st.connected) return 'on';
 		if (this.busy) return 'busy';
-		if (st.running) return 'busy';
+		if (st.phase === 'error' || (st.error && !st.running)) return 'err';
+		if (st.phase === 'starting' || st.running) return 'busy';
 		return 'off';
 	},
 
 	updatePower: function () {
 		var me = this, S = this.S, st = S.status || {}, ph = this.phase();
-		var errMsg = '';
-		if (ph === 'off' && st.error) errMsg = st.error;
-		this.powerEl.className = 'hv-power ' + ph + (errMsg ? ' err' : '');
-		this.stEl.className = 'hv-st' + (ph === 'on' ? ' on' : '');
-		this.stEl.textContent = ph === 'on' ? 'ПОДКЛЮЧЁН' : ph === 'busy' ? 'Подключение…' : 'Отключено';
+		var disconnecting = this.busy && this.busy.kind === 'off';
+		var errMsg = (ph === 'err' && st.error) ? st.error : '';
+
+		this.powerEl.className = 'hv-power ' + ph;
+		this.stEl.className = 'hv-st' + (ph === 'on' ? ' on' : ph === 'err' ? ' err' : '');
+		this.stEl.textContent = ph === 'on' ? 'Подключено' : ph === 'busy' ? (disconnecting ? 'Отключение…' : 'Подключение…') : ph === 'err' ? 'Ошибка подключения' : 'Отключено';
+		this.pbEl.setAttribute('aria-pressed', ph === 'on' ? 'true' : 'false');
+		this.pillEl.className = 'hv-pill ' + (ph === 'on' ? 'on' : ph === 'busy' ? 'busy' : ph === 'err' ? 'err' : '');
+		this.pillEl.textContent = this.stEl.textContent;
 
 		var servers = this.servers();
 		if (ph === 'on') {
@@ -645,8 +829,9 @@ return view.extend({
 		} else {
 			this._upSince = 0;
 			this.timerEl.textContent = '';
-			if (ph === 'busy') this.subEl.textContent = 'Поднимаем туннель…';
-			else this.subEl.textContent = servers.length ? 'Нажмите, чтобы подключиться' : 'Сначала добавьте ссылку слева';
+			this.subEl.textContent = ph === 'busy' ? (disconnecting ? '' : 'Поднимаем туннель, это занимает несколько секунд')
+				: ph === 'err' ? 'Нажмите кнопку, чтобы повторить'
+				: servers.length ? 'Нажмите, чтобы подключиться' : 'Сначала добавьте ссылку слева';
 		}
 
 		/* текущий сервер */
@@ -656,11 +841,10 @@ return view.extend({
 		var cur = activeId ? this.serverById(activeId) : null;
 		if (servers.length && (cur || sel === 'auto')) {
 			var f = cur ? flagInfo(cur.name) : null;
-			var title = cur ? f.name : 'Авто';
-			var subt = cur ? (sel === 'auto' && ph === 'on' ? 'Авто · лучший сервер' : [cur.proto, cur.net, cur.sec].filter(function (x) { return x && x !== 'none'; }).join(' / ').toUpperCase()) : 'Лучший сервер выбирается автоматически';
+			var subt = cur ? ((sel === 'auto' && ph === 'on' ? 'Авто · ' : '') + this.metaOf(cur)) : 'Лучший сервер выбирается автоматически';
 			this.curEl.appendChild(E('div', { 'class': 'hv-cur' }, [
-				cur ? flagEl(f.code) : flagEl('★', 'auto'),
-				E('div', { 'class': 'hv-nm' }, [E('b', {}, title), E('span', {}, subt)])
+				cur ? flagEl(f.code) : flagEl('', true),
+				E('div', { 'class': 'hv-nm' }, [E('b', {}, cur ? f.name : 'Авто'), E('span', {}, subt)])
 			]));
 		}
 
@@ -668,16 +852,22 @@ return view.extend({
 		this.statsEl.innerHTML = '';
 		if (ph === 'on') {
 			var ck = this.check || {}, ip = ck.ip || st.ip;
-			var cell = function (label, val) { return E('div', { 'class': 'hv-stat' }, [E('span', {}, label), E('b', {}, val)]); };
+			var cell = function (icon, label, val, small) {
+				return E('div', { 'class': 'hv-stat' }, [E('span', {}, [ic(icon), label]), E('b', { title: val }, val), E('small', {}, small || '')]);
+			};
 			var tgt = sel !== 'auto' ? sel : (st.active || '');
 			var pd = tgt && S.delays ? S.delays[tgt] : undefined;
-			var cells = [
-				cell('Пинг', typeof pd === 'number' ? pd + ' мс' : (typeof ck.delay === 'number' ? ck.delay + ' мс' : '—')),
-				cell('IP', ipText(ip))
-			];
-			cells.forEach(function (c) { me.statsEl.appendChild(c); });
-			me.statsEl.appendChild(E('button', { 'class': 'hv-btn ghost hv-pgsel', title: 'Замерить пинг выбранного сервера',
-				click: function (ev) { me.doPingOne(tgt, ev.currentTarget); } }, [ic('zap'), document.createTextNode(' Пинг выбранного сервера')]));
+			var delay = typeof pd === 'number' ? pd : (typeof ck.delay === 'number' ? ck.delay : null);
+			this.statsEl.appendChild(E('div', { 'class': 'hv-stats' }, [
+				cell('zap', 'Пинг', delay != null ? delay + ' мс' : '—'),
+				cell('globe', 'IP', ipText(ip)),
+				cell('down', 'Получено', fmtBytes(st.down), this.rate.down > 0 ? fmtBytes(this.rate.down) + '/с' : ''),
+				cell('up', 'Отправлено', fmtBytes(st.up), this.rate.up > 0 ? fmtBytes(this.rate.up) + '/с' : '')
+			]));
+			this.statsEl.appendChild(E('div', { 'class': 'hv-actions' }, [
+				E('button', { type: 'button', 'class': 'hv-btn ghost sm', title: 'Замерить пинг и определить IP заново',
+					click: function (ev) { me.doRecheck(ev.currentTarget); } }, [ic('refresh'), E('span', {}, 'Проверить')])
+			]));
 		}
 
 		/* ошибка */
@@ -693,40 +883,51 @@ return view.extend({
 	/* ───── действия ───── */
 
 	toggle: function () {
-		if (this.phase() === 'on' || this.phase() === 'busy') this.disconnect();
+		var ph = this.phase();
+		if (ph === 'on' || ph === 'busy') this.disconnect();
 		else this.connect();
+	},
+
+	failConnect: function (msg) {
+		this.busy = null;
+		this.S.status = Object.assign({}, this.S.status, { connected: false, phase: 'error', error: msg });
+		this.updatePower();
+		this.drawBanners();
+		this.toast(msg, true);
 	},
 
 	connect: function () {
 		var self = this;
 		if (!this.servers().length) { this.toast('Сначала добавьте ссылку', true); return; }
-		this.busy = Date.now();
+		if (this.busy && this.busy.kind === 'on') return;
+		this.busy = { kind: 'on', since: Date.now() };
+		this.check = null;
+		this.pinged = false;
+		this.S.status = Object.assign({}, this.S.status, { error: '', phase: 'starting' });
 		this.updatePower();
+		this.drawBanners();
 		rConnect().then(function (r) {
-			self.busy = null;
-			if (!r || !r.ok) {
-				self.toast((r && r.error) || 'Не удалось подключиться', true);
-				self.pollStatus();
-				return;
-			}
-			self.toast('VPN подключён');
-			self.refreshAll();
-			self.doCheck();
-		}).catch(function () {
-			self.busy = null;
-			self.toast('Ошибка соединения', true);
+			if (!self.busy) return;
+			if (!r || !r.ok) { self.failConnect((r && r.error) || 'Не удалось запустить VPN'); return; }
 			self.pollStatus();
+		}).catch(function () {
+			if (self.busy) self.failConnect('Нет связи с роутером. Попробуйте ещё раз.');
 		});
 	},
 
 	disconnect: function () {
 		var self = this;
-		this.busy = Date.now();
+		this.busy = { kind: 'off', since: Date.now() };
 		this.updatePower();
 		rDisconnect().then(function () {
 			self.busy = null;
-			self.S.status = Object.assign({}, self.S.status, { connected: false, running: false, error: '' });
+			self.check = null;
+			self.pinged = false;
+			self.rate = { down: 0, up: 0 };
+			self._prev = null;
+			self.S.status = Object.assign({}, self.S.status, { connected: false, running: false, phase: 'off', error: '' });
 			self.updatePower();
+			self.drawBanners();
 			self.toast('VPN отключён');
 			self.refreshAll();
 		}).catch(function () {
@@ -736,139 +937,223 @@ return view.extend({
 		});
 	},
 
-	doAdd: function (ta) {
-		var self = this, text = (ta.value || '').trim();
-		if (!text) { this.toast('Вставьте ссылку', true); return; }
+	doAdd: function () {
+		var self = this, ta = this.addTa, text = (ta.value || '').trim();
+		if (!text) { this.toast('Вставьте ссылку на подписку или ключ', true); ta.focus(); return; }
+		if (this._adding) return;
+		this._adding = true;
 		ta.disabled = true;
-		rAdd(text).then(function (r) {
+		this.addBtn.disabled = true;
+		this.addBtn.classList.add('spin');
+		var done = function () {
+			self._adding = false;
 			ta.disabled = false;
+			self.addBtn.disabled = false;
+			self.addBtn.classList.remove('spin');
+		};
+		rAdd(text).then(function (r) {
+			done();
 			if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось добавить', true); return; }
 			ta.value = '';
-			self.toast(r.kind === 'sub' ? ('Подписка: +' + r.added + ' серверов') : ('Добавлено: ' + r.added));
+			self.addFit();
+			var n = r.added || 0;
+			self.toast(r.kind === 'sub'
+				? 'Подписка «' + (r.name || '') + '»: ' + n + ' ' + plural(n, 'сервер', 'сервера', 'серверов')
+				: 'Добавлено: ' + n + ' ' + plural(n, 'сервер', 'сервера', 'серверов'));
+			self.pinged = false;
 			self.refreshAll();
-		}).catch(function () { ta.disabled = false; self.toast('Ошибка добавления', true); });
+		}).catch(function () {
+			done();
+			self.toast('Роутер не ответил вовремя. Подписка могла добавиться — обновите страницу.', true);
+		});
 	},
 
 	doSelect: function (id) {
 		var self = this;
+		if (((this.S.settings || {}).selected || 'auto') === id) return;
 		rSelect(id).then(function (r) {
 			if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось выбрать', true); return; }
 			if (self.S.settings) self.S.settings.selected = id;
 			self.drawList();
 			self.updatePower();
-			if (self.phase() === 'on') self.connect();
-		});
+			/* бэкенд переключает сервер на лету, перезапускать туннель не нужно */
+			if (self.phase() === 'on') {
+				self.check = null;
+				setTimeout(function () { self.doCheck(); }, 1200);
+			}
+		}).catch(function () { self.toast('Не удалось выбрать сервер', true); });
 	},
 
-	doRemove: function (id, name) {
+	doRemove: function (id, name, what) {
 		var self = this;
-		if (!window.confirm('Удалить «' + (name || id) + '»?')) return;
-		rRemove(id).then(function (r) {
-			if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось удалить', true); return; }
-			self.toast('Удалено');
-			self.refreshAll();
+		this.confirmDlg('Удалить ' + (what || 'сервер') + '?', '«' + (name || id) + '» будет удалён' + (what === 'подписку' ? ' вместе со всеми серверами из неё.' : '.'), 'Удалить', true, function () {
+			rRemove(id).then(function (r) {
+				if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось удалить', true); return; }
+				self.toast('Удалено');
+				self.refreshAll();
+			}).catch(function () { self.toast('Не удалось удалить', true); });
 		});
 	},
 
 	doRefresh: function (id, btn) {
 		var self = this;
-		if (btn) btn.classList.add('spin');
+		if (btn) { btn.classList.add('spin'); btn.disabled = true; }
+		var done = function () { if (btn) { btn.classList.remove('spin'); btn.disabled = false; } };
 		rRefresh(id || 'all').then(function (r) {
-			if (btn) btn.classList.remove('spin');
-			if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось обновить', true); return; }
-			self.toast('Подписки обновлены');
+			done();
+			if (!r || !r.ok) {
+				self.toast((r && r.error) || 'Не удалось обновить', true);
+				self.refreshAll();
+				return;
+			}
+			self.toast(r.updated ? 'Подписки обновлены' : 'Нет подписок для обновления');
 			self.refreshAll();
-		}).catch(function () { if (btn) btn.classList.remove('spin'); self.toast('Ошибка обновления', true); });
+		}).catch(function () { done(); self.toast('Роутер не ответил вовремя', true); });
 	},
 
 	doCheck: function () {
 		var self = this;
+		if (this._checking) return;
+		this._checking = true;
 		rCheck().then(function (r) {
+			self._checking = false;
 			if (r && r.ok) self.check = r;
 			self.updatePower();
-		}).catch(function () {});
+		}).catch(function () { self._checking = false; });
 	},
 
-	doPing: function (btn, lbl) {
+	doRecheck: function (btn) {
 		var self = this;
+		if (btn) btn.disabled = true;
+		this.check = null;
+		rCheck().then(function (r) {
+			if (btn) btn.disabled = false;
+			if (r && r.ok) { self.check = r; self.toast('Проверка пройдена · ' + r.delay + ' мс'); }
+			else self.toast((r && r.error) || 'Сервер не отвечает', true);
+			self.updatePower();
+		}).catch(function () { if (btn) btn.disabled = false; self.toast('Проверка не удалась', true); });
+		this.doPing();
+	},
+
+	/* manual = пользователь нажал «Пинг всех» (показываем результат тостом) */
+	doPing: function (manual) {
+		var self = this, btn = manual ? this.pingAllBtn : null;
 		if (this._pinging) return;
 		this._pinging = true;
-		if (btn) { btn.disabled = true; btn.classList.add('spin'); if (lbl) lbl.textContent = ' Измеряю…'; }
+		this.pinged = true;
+		if (btn) { btn.disabled = true; btn.classList.add('spin'); btn.lastChild.textContent = 'Измеряю…'; }
 		var done = function () {
 			self._pinging = false;
-			if (btn) { btn.disabled = false; btn.classList.remove('spin'); if (lbl) lbl.textContent = ' Пинг всех'; }
+			if (btn) { btn.disabled = false; btn.classList.remove('spin'); btn.lastChild.textContent = 'Пинг всех'; }
 		};
 		rPing().then(function (r) {
 			done();
 			if (r && r.delays) self.S.delays = r.delays;
-			if (btn) {
+			if (manual) {
 				if (!r || !r.ok) self.toast((r && r.error) || 'Не удалось измерить пинг', true);
 				else self.toast('Пинг обновлён');
 			}
 			self.drawList();
 			self.updatePower();
-		}).catch(function () { done(); if (btn) self.toast('Ошибка измерения пинга', true); });
+		}).catch(function () { done(); if (manual) self.toast('Роутер не ответил вовремя', true); });
 	},
 
 	doPingOne: function (id, btn) {
 		var self = this;
 		if (!id) { this.toast('Сначала выберите сервер или подключитесь', true); return; }
-		if (btn) btn.classList.add('spin');
+		if (btn) { btn.classList.add('spin'); btn.disabled = true; }
+		var done = function () { if (btn) { btn.classList.remove('spin'); btn.disabled = false; } };
 		rPingOne(id).then(function (r) {
-			if (btn) btn.classList.remove('spin');
+			done();
 			if (r && r.delays) self.S.delays = r.delays;
 			if (!r || !r.ok) self.toast((r && r.error) || 'Сервер не ответил', true);
 			else self.toast('Пинг: ' + r.ms + ' мс');
 			self.drawList();
 			self.updatePower();
-		}).catch(function () { if (btn) btn.classList.remove('spin'); self.toast('Ошибка измерения пинга', true); });
+		}).catch(function () { done(); self.toast('Не удалось измерить пинг', true); });
 	},
 
 	/* ───── опрос ───── */
 
+	applyStatus: function (r) {
+		var prevPhase = this.phase(), now = Date.now();
+		/* скорость по разнице счётчиков */
+		if (r.connected && this._prev && now > this._prev.t && r.down >= this._prev.down && r.up >= this._prev.up) {
+			var dt = (now - this._prev.t) / 1000;
+			this.rate = { down: (r.down - this._prev.down) / dt, up: (r.up - this._prev.up) / dt };
+		} else this.rate = { down: 0, up: 0 };
+		this._prev = r.connected ? { t: now, down: r.down || 0, up: r.up || 0 } : null;
+
+		this.S.status = r;
+		if (this.busy && this.busy.kind === 'on') {
+			if (r.connected) {
+				this.busy = null;
+				this.toast('VPN подключён');
+			} else if (r.phase === 'error' || (r.phase === 'off' && now - this.busy.since > 4000)) {
+				this.failConnect(r.error || 'Служба остановилась сразу после запуска. Смотрите вкладку «Журнал».');
+				return;
+			}
+		}
+		var ph = this.phase();
+		if (ph !== prevPhase || ph === 'on') this.updatePower();
+		if (ph !== prevPhase) this.drawBanners();
+		if (ph === 'on' && !this.check) this.doCheck();
+		if (ph === 'on' && !this.pinged && this.servers().length) this.doPing();
+	},
+
 	pollStatus: function () {
 		var self = this;
+		if (this._polling) return;
+		this._polling = true;
 		rStatus().then(function (r) {
-			if (!r) return;
-			self.S.status = r;
-			self.updatePower();
-		}).catch(function () {});
+			self._polling = false;
+			if (r && typeof r === 'object') self.applyStatus(r);
+		}).catch(function () { self._polling = false; });
 	},
 
 	refreshAll: function () {
 		var self = this;
 		rState().then(function (st) {
 			if (!st) return;
+			self.loadFailed = false;
 			self.S = st;
 			self.afterState();
-		}).catch(function () {});
+		}).catch(function () {
+			if (!self.servers().length) { self.loadFailed = true; self.drawBanners(); }
+		});
 	},
 
 	afterState: function () {
+		var st = this.S.status || {};
+		if (this.busy && this.busy.kind === 'on') {
+			if (st.connected) this.busy = null;
+			else if (st.phase === 'error') { this.failConnect(st.error || 'Не удалось подключиться'); return; }
+		}
 		this.drawList();
 		this.updatePower();
 		this.drawBanners();
-		this.foot.textContent = (this.S.singbox ? 'sing-box ' + this.S.singbox : '') + (this.S.tun ? ' · TUN' : '');
+		this.foot.textContent = [this.S.singbox ? 'sing-box ' + this.S.singbox : '', this.S.tun ? 'TUN' : ''].filter(Boolean).join(' · ');
 		if (this.phase() === 'on' && !this.check) this.doCheck();
-		if (this.servers().length && !(this.S.delays && Object.keys(this.S.delays).length)) this.doPing();
+		if (this.phase() === 'on' && !this.pinged && this.servers().length) this.doPing();
 	},
 
 	drawBanners: function () {
-		var self = this, b = this.banners;
+		var self = this, b = this.banners, S = this.S, st = S.status || {};
 		b.innerHTML = '';
-		var S = this.S;
-		if (!S.tun) {
-			b.appendChild(E('div', { 'class': 'hv-banner bad' }, [
+		var add = function (kind, title, text, action) {
+			b.appendChild(E('div', { 'class': 'hv-banner ' + kind, role: kind === 'bad' ? 'alert' : 'status' }, [
 				ic('warn'),
-				E('div', {}, [E('b', {}, 'Модуль TUN не найден'), E('div', {}, 'Установите kmod-tun и перезагрузите роутер')])
-			]));
-		}
-		if (S.status && S.status.error && !S.status.connected) {
-			b.appendChild(E('div', { 'class': 'hv-banner bad' }, [
-				ic('warn'),
-				E('div', {}, [E('b', {}, 'Ошибка'), E('div', {}, S.status.error)])
-			]));
-		}
+				E('div', { 'class': 'b' }, [E('b', {}, title), E('div', {}, text)]),
+				action || null
+			].filter(Boolean)));
+		};
+		if (this.loadFailed)
+			add('bad', 'Нет связи с роутером', 'Не удалось получить состояние VPN. Проверьте, что служба rpcd запущена, и обновите страницу (Ctrl+F5).',
+				E('button', { type: 'button', 'class': 'hv-btn ghost sm', click: function () { self.refreshAll(); } }, 'Повторить'));
+		if (S.tun === false)
+			add('bad', 'Модуль TUN не найден', 'Установите пакет kmod-tun и перезагрузите роутер.');
+		if (st.other_singbox && !st.connected && this.phase() !== 'busy')
+			add('warn', 'Запущен другой sing-box', 'Похоже, работает Podkop или другой VPN на sing-box. Остановите его перед подключением — два VPN одновременно мешают друг другу.');
 	},
 
 	/* ───── настройки ───── */
@@ -883,82 +1168,95 @@ return view.extend({
 
 	drawDevices: function () {
 		if (!this.devBox) return;
-		var self = this, box = this.devBox;
+		var box = this.devBox, chosen = this.chosenDevices, seen = {};
 		box.innerHTML = '';
-		var chosen = this.chosenDevices;
-		var seen = {};
-		(this.devList || []).forEach(function (d) {
-			seen[d.ip] = true;
+		var line = function (ip, title, on) {
 			var cb = E('input', { type: 'checkbox' });
-			cb.checked = chosen.indexOf(d.ip) >= 0;
-			cb.addEventListener('change', function () {
-				var i = chosen.indexOf(d.ip);
-				if (cb.checked && i < 0) chosen.push(d.ip);
-				if (!cb.checked && i >= 0) chosen.splice(i, 1);
-			});
-			box.appendChild(E('label', { 'class': 'hv-dev' }, [cb, E('div', {}, d.name || d.mac), E('span', {}, d.ip)]));
-		});
-		chosen.forEach(function (ip) {
-			if (seen[ip]) return;
-			var cb = E('input', { type: 'checkbox' });
-			cb.checked = true;
+			cb.checked = on;
 			cb.addEventListener('change', function () {
 				var i = chosen.indexOf(ip);
+				if (cb.checked && i < 0) chosen.push(ip);
 				if (!cb.checked && i >= 0) chosen.splice(i, 1);
 			});
-			box.appendChild(E('label', { 'class': 'hv-dev' }, [cb, E('div', {}, 'Адрес вручную'), E('span', {}, ip)]));
-		});
+			box.appendChild(E('label', { 'class': 'hv-dev' }, [cb, E('div', { title: title }, title), E('span', {}, ip)]));
+		};
+		(this.devList || []).forEach(function (d) { seen[d.ip] = true; line(d.ip, d.name || d.mac, chosen.indexOf(d.ip) >= 0); });
+		chosen.forEach(function (ip) { if (!seen[ip]) line(ip, 'Адрес вручную', true); });
 		if (!box.childNodes.length) box.appendChild(E('div', { 'class': 'hv-empty' }, 'Устройства не найдены'));
 	},
 
-	buildSettings: function () {
-		var self = this, s = this.S.settings || {};
-		var F = {};
-		this.F = F;
-		this.chosenDevices = (s.devices || []).slice();
+	markDirty: function () {
+		if (this._dirty) return;
+		this._dirty = true;
+		this.updateSaveBar();
+	},
 
-		var opt = function (title, desc, ctl) {
-			return E('div', { 'class': 'hv-opt' }, [E('div', { 'class': 't' }, [E('b', {}, title), desc ? E('span', {}, desc) : null].filter(Boolean)), E('div', { 'class': 'c' }, [ctl])]);
+	updateSaveBar: function () {
+		if (!this.saveBar) return;
+		this.saveBar.className = 'hv-save' + (this._dirty ? ' dirty' : '');
+		this.saveMsg.textContent = this._dirty ? 'Есть несохранённые изменения' : 'Все изменения сохранены';
+		this.saveBtn.disabled = !this._dirty;
+		this.revertBtn.style.display = this._dirty ? '' : 'none';
+	},
+
+	buildSettings: function () {
+		var self = this, s = this.S.settings || {}, F = {};
+		this.F = F;
+		this._dirty = false;
+		this.chosenDevices = (s.devices || []).slice();
+		this.chosenPresets = (s.presets || []).slice();
+		this.paneSet.innerHTML = '';
+
+		/* кирпичики */
+		var section = function (icon, title, desc, kids) {
+			return E('section', { 'class': 'hv-card hv-sec' }, [E('h3', {}, [ic(icon), title]), desc ? E('p', {}, desc) : null].concat(kids).filter(Boolean));
 		};
-		var toggle = function (key, val) { var t = sw(val); F[key] = t.inp; return t.el; };
-		var tg = function (title, desc, key, val) { var el = toggle(key, val); return E('div', { 'class': 'hv-opt' }, [E('div', { 'class': 't' }, [E('b', {}, title), E('span', {}, desc)]), el]); };
+		var optRow = function (title, desc, ctl, first, col) {
+			return E('div', { 'class': 'hv-opt' + (first ? ' first' : '') + (col ? ' col' : '') }, [
+				E('div', { 'class': 't' }, [E('b', {}, title), desc ? E('span', {}, desc) : null].filter(Boolean)),
+				E('div', { 'class': 'c' }, Array.isArray(ctl) ? ctl : [ctl])
+			]);
+		};
+		var toggleRow = function (key, title, desc, val, first) {
+			var t = sw(val);
+			F[key] = { get: function () { return t.inp.checked; } };
+			return E('div', { 'class': 'hv-opt' + (first ? ' first' : '') }, [E('div', { 'class': 't' }, [E('b', {}, title), E('span', {}, desc)]), t.el]);
+		};
 		var select = function (key, items, val) {
 			var el = E('select', { 'class': 'hv-sel' }, items.map(function (it) { return E('option', { value: it[0] }, it[1]); }));
 			el.value = String(val);
-			F[key] = el; return el;
+			F[key] = { get: function () { return el.value; }, el: el };
+			return el;
 		};
-		var input = function (key, val, ph) { var el = E('input', { 'class': 'hv-in', type: 'text', value: val == null ? '' : val, placeholder: ph || '' }); F[key] = el; return el; };
+		var input = function (key, val, ph) {
+			var el = E('input', { 'class': 'hv-in', type: 'text', value: val == null ? '' : val, placeholder: ph || '', spellcheck: 'false' });
+			el.addEventListener('input', function () { el.classList.remove('bad'); });
+			F[key] = { get: function () { return el.value.trim(); }, el: el };
+			return el;
+		};
+		var area = function (key, list, ph) {
+			var el = E('textarea', { 'class': 'hv-ta', spellcheck: 'false', placeholder: ph });
+			el.value = (list || []).join('\n');
+			el.addEventListener('input', function () { el.classList.remove('bad'); });
+			F[key] = { get: function () { return el.value.split(/[\s,;]+/).filter(Boolean); }, el: el };
+			return el;
+		};
 
-		var dnsPresets = ['1.1.1.1', '8.8.8.8', '9.9.9.9'];
-		var dnsCur = s.remote_dns || '1.1.1.1';
-		var dnsSel = select('dns_sel', [['1.1.1.1', 'Cloudflare (1.1.1.1)'], ['8.8.8.8', 'Google (8.8.8.8)'], ['9.9.9.9', 'Quad9 (9.9.9.9)'], ['custom', 'Свой адрес…']], dnsPresets.indexOf(dnsCur) >= 0 ? dnsCur : 'custom');
-		var dnsCustom = input('dns_custom', dnsPresets.indexOf(dnsCur) >= 0 ? '' : dnsCur, '1.2.3.4');
-		dnsCustom.style.marginTop = '8px';
-		var syncDns = function () { dnsCustom.style.display = dnsSel.value === 'custom' ? '' : 'none'; };
-		dnsSel.addEventListener('change', syncDns); syncDns();
-
-		this.devBox = E('div', { 'class': 'hv-devs' });
-		var devWrap = E('div');
-		var modeSel = select('mode', [['all', 'Все устройства в сети'], ['include', 'Только выбранные'], ['exclude', 'Все, кроме выбранных']], s.mode || 'all');
-		var devManual = E('input', { 'class': 'hv-in', type: 'text', placeholder: 'Добавить адрес вручную, например 192.168.1.50', style: 'margin-top:8px' });
-		devManual.addEventListener('keydown', function (ev) {
-			if (ev.key !== 'Enter') return;
-			var v = devManual.value.trim();
-			if (/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(v) && self.chosenDevices.indexOf(v) < 0) { self.chosenDevices.push(v); devManual.value = ''; self.drawDevices(); }
-			else self.toast('Введите IP-адрес, например 192.168.1.50', true);
-		});
-		devWrap.appendChild(this.devBox);
-		devWrap.appendChild(devManual);
-		var syncDev = function () { devWrap.style.display = modeSel.value === 'all' ? 'none' : ''; };
-		modeSel.addEventListener('change', syncDev); syncDev();
-
-		var directTa = E('textarea', { 'class': 'hv-ta', spellcheck: 'false', placeholder: 'example.com\nbank.ru\n203.0.113.0/24' });
-		directTa.value = (s.direct_domains || []).join('\n');
-		F.direct_domains = directTa;
-
+		/* — маршрутизация — */
 		var routeNow = s.scope === 'selected' ? 'selected' : (s.bypass_ru ? 'no_ru' : 'all');
-		var routeSel = select('route', [['all', 'Весь трафик'], ['no_ru', 'Всё, кроме российских сайтов'], ['selected', 'Только выбранные сервисы']], routeNow);
-		this.chosenPresets = (s.presets || []).slice();
+		var presetBox = E('div', { style: 'margin-top:12px' });
+		var routeHint = E('div', { 'class': 'hv-hint' });
+		var hints = {
+			all: 'Весь трафик устройств идёт через VPN.',
+			no_ru: '.ru, .рф и популярные российские сервисы идут напрямую, остальное — через VPN.',
+			selected: 'Через VPN идут только отмеченные сервисы и ваши сайты, остальное — напрямую.'
+		};
+		F.route = seg([['all', 'Весь трафик'], ['no_ru', 'Кроме РФ'], ['selected', 'Только выбранное']], routeNow, function (v, user) {
+			presetBox.style.display = v === 'selected' ? '' : 'none';
+			routeHint.textContent = hints[v];
+			if (user) self.markDirty();
+		});
+
 		var chipBox = E('div', { 'class': 'hv-chips' });
 		PRESETS.forEach(function (p) {
 			var cb = E('input', { type: 'checkbox' });
@@ -972,71 +1270,127 @@ return view.extend({
 			});
 			chipBox.appendChild(chip);
 		});
-		var proxyTa = E('textarea', { 'class': 'hv-ta', spellcheck: 'false', placeholder: 'example.com\n203.0.113.0/24' });
-		proxyTa.value = (s.proxy_domains || []).join('\n');
-		F.proxy_domains = proxyTa;
-		var presetBox = E('div', { style: 'margin-top:12px' }, [
-			E('div', { 'class': 't' }, [E('b', {}, 'Сервисы'), E('span', {}, 'Отметьте, что должно идти через VPN')]),
-			chipBox,
-			E('div', { 'class': 't', style: 'margin-top:12px' }, [E('b', {}, 'Свои сайты через VPN'), E('span', {}, 'Домены или подсети, по одному в строке')]),
-			proxyTa,
-			E('div', { 'class': 'hv-note' }, 'Остальное идёт напрямую, но всё равно проходит через sing-box — на слабых роутерах скорость может быть ниже.')
-		]);
-		var syncRoute = function () { presetBox.style.display = routeSel.value === 'selected' ? '' : 'none'; };
-		routeSel.addEventListener('change', syncRoute); syncRoute();
+		presetBox.appendChild(E('div', { 'class': 'hv-label', style: 'margin-top:0' }, ['Сервисы', E('span', {}, 'Отметьте, что должно идти через VPN')]));
+		presetBox.appendChild(chipBox);
+		presetBox.appendChild(E('div', { 'class': 'hv-label' }, ['Свои сайты через VPN', E('span', {}, 'Домены или подсети, по одному в строке')]));
+		presetBox.appendChild(area('proxy_domains', s.proxy_domains, 'example.com\n203.0.113.0/24'));
+		presetBox.appendChild(E('div', { 'class': 'hv-hint' }, 'Остальной трафик идёт напрямую, но всё равно проходит через sing-box — на слабых роутерах скорость может быть ниже.'));
 
-		var ifacesIn = input('ifaces', (s.ifaces || ['lan']).join(' '), 'lan');
+		/* — устройства — */
+		this.devBox = E('div', { 'class': 'hv-devs' });
+		var devManual = E('input', { 'class': 'hv-in', type: 'text', placeholder: 'Добавить адрес вручную, например 192.168.1.50 (Enter)', style: 'margin-top:8px', spellcheck: 'false' });
+		var devWrap = E('div', { style: 'margin-top:10px' }, [this.devBox, devManual]);
+		devManual.addEventListener('keydown', function (ev) {
+			if (ev.key !== 'Enter') return;
+			ev.preventDefault();
+			var v = devManual.value.trim();
+			if (/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(v) && self.chosenDevices.indexOf(v) < 0) {
+				self.chosenDevices.push(v); devManual.value = ''; self.drawDevices(); self.markDirty();
+			} else self.toast('Введите IP-адрес, например 192.168.1.50', true);
+		});
+		F.mode = seg([['all', 'Все'], ['include', 'Только выбранные'], ['exclude', 'Все, кроме выбранных']], s.mode || 'all', function (v, user) {
+			devWrap.style.display = v === 'all' ? 'none' : '';
+			if (user) self.markDirty();
+		});
 
-		var left = E('div', { 'class': 'hv-card hv-sec' }, [
-			E('h3', {}, 'Основное'), E('p', {}, 'Всё уже настроено — менять ничего не обязательно.'),
-			tg('Запускать при включении роутера', 'VPN поднимется сам после перезагрузки', 'autostart', s.autostart),
-			opt('Автообновление подписок', 'Подтягивает новые серверы от провайдера', select('update_interval', [['0', 'Выключено'], ['6', 'Каждые 6 часов'], ['12', 'Каждые 12 часов'], ['24', 'Раз в сутки'], ['72', 'Раз в 3 дня'], ['168', 'Раз в неделю']], s.update_interval == null ? 24 : s.update_interval)),
-			E('div', { 'class': 'hv-col' }, [E('div', { 'class': 't' }, [E('b', {}, 'Для каких устройств включать VPN'), E('span', {}, 'По умолчанию VPN работает для всех, кто подключён к роутеру')]), modeSel, devWrap]),
-			E('h3', { style: 'margin-top:18px' }, 'Авто-переключение'),
-			E('p', {}, 'В режиме «Авто» роутер сам замеряет пинг и переключается на самый быстрый сервер.'),
-			opt('Частота проверки', 'Как часто заново измерять пинг серверов', select('auto_interval', [['30s', 'Каждые 30 секунд'], ['1m', 'Каждую минуту'], ['3m', 'Каждые 3 минуты'], ['5m', 'Каждые 5 минут'], ['10m', 'Каждые 10 минут']], s.auto_interval || '3m')),
-			opt('Порог переключения', 'Переключится, если другой сервер быстрее на это число мс', input('auto_tolerance', s.auto_tolerance == null ? 80 : s.auto_tolerance)),
-			opt('Адрес проверки', 'URL, по которому сервер замеряет задержку', input('auto_test_url', s.auto_test_url || 'https://www.gstatic.com/generate_204')),
-			E('h3', { style: 'margin-top:18px' }, 'Маршрутизация'),
-			E('div', { 'class': 'hv-col' }, [E('div', { 'class': 't' }, [E('b', {}, 'Что пускать через VPN'), E('span', {}, 'Весь трафик, всё кроме российских сайтов или только нужные сервисы')]), routeSel, presetBox]),
-			E('div', { 'class': 'hv-col' }, [E('div', { 'class': 't' }, [E('b', {}, 'Свои исключения'), E('span', {}, 'Домены или подсети, которые идут напрямую')]), directTa]),
-			tg('Kill Switch', 'Блокировать интернет, если VPN упал', 'kill_switch', s.kill_switch)
-		]);
+		/* — DNS — */
+		var dnsPresets = ['1.1.1.1', '8.8.8.8', '9.9.9.9'], dnsCur = s.remote_dns || '1.1.1.1';
+		var dnsSel = select('dns_sel', [['1.1.1.1', 'Cloudflare (1.1.1.1)'], ['8.8.8.8', 'Google (8.8.8.8)'], ['9.9.9.9', 'Quad9 (9.9.9.9)'], ['custom', 'Свой адрес…']],
+			dnsPresets.indexOf(dnsCur) >= 0 ? dnsCur : 'custom');
+		var dnsCustom = input('dns_custom', dnsPresets.indexOf(dnsCur) >= 0 ? '' : dnsCur, '1.2.3.4');
+		dnsCustom.style.marginTop = '8px';
+		var syncDns = function () { dnsCustom.style.display = dnsSel.value === 'custom' ? '' : 'none'; };
+		dnsSel.addEventListener('change', syncDns); syncDns();
 
-		var right = E('div', { 'class': 'hv-card hv-sec' }, [
-			E('h3', {}, 'DNS и сеть'), E('p', {}, 'Тонкие настройки — обычно трогать не нужно.'),
-			tg('DNS через VPN', 'DNS-запросы клиентов уходят через туннель (DoT)', 'dns_vpn', (s.dns_mode || 'vpn') === 'vpn'),
-			E('div', { 'class': 'hv-col' }, [E('div', { 'class': 't' }, [E('b', {}, 'Удалённый DNS'), E('span', {}, 'DNS-сервер внутри VPN')]), dnsSel, dnsCustom]),
-			tg('Блокировать IPv6', 'Весь IPv6-трафик клиентов блокируется, чтобы не утекал мимо VPN', 'block_ipv6', s.block_ipv6 !== false),
-			tg('Блокировать QUIC', 'Отключает UDP/443 (может помочь с YouTube)', 'block_quic', s.block_quic !== false),
-			tg('VPN-серверы мимо туннеля', 'Если на телефоне или ПК запущен свой VPN с теми же серверами, он продолжит работать', 'bypass_vpn', s.bypass_vpn !== false),
-			opt('Стек TUN', 'system — быстрее, gvisor — совместимее', select('tun_stack', [['system', 'system'], ['gvisor', 'gvisor'], ['mixed', 'mixed']], s.tun_stack || 'system')),
-			opt('MTU', 'Размер пакета (обычно 1400)', input('mtu', s.mtu || 1400)),
-			opt('Интерфейсы', 'Из каких зон брать клиентов', ifacesIn),
-			opt('Уровень логов', '', select('log_level', [['error', 'error'], ['warn', 'warn'], ['info', 'info'], ['debug', 'debug']], s.log_level || 'warn')),
-			opt('User-Agent', 'При скачивании подписок (Happ — как с Android). HWID: ' + (s.hwid || '—'), input('user_agent', s.user_agent || 'Happ/3.13.0'))
+		/* — HWID — */
+		var hwidRow = E('div', { 'class': 'hv-hwid' }, [
+			E('code', {}, s.hwid || '—'),
+			E('button', { type: 'button', 'class': 'hv-ibtn', title: 'Скопировать HWID', 'aria-label': 'Скопировать HWID',
+				click: function () { copyText(s.hwid || '').then(function () { self.toast('HWID скопирован'); }, function () { self.toast('Не удалось скопировать — выделите вручную', true); }); } }, [ic('copy')])
 		]);
 
-		var saveBtn = E('button', { 'class': 'hv-btn', click: function () { self.saveSettings(saveBtn); } }, 'Сохранить');
-		var resetBtn = E('button', { 'class': 'hv-btn hv-danger', click: function () { self.resetAll(); } }, 'Сбросить серверы');
+		var left = E('div', { 'class': 'hv-colm' }, [
+			section('power', 'Основное', 'Всё уже настроено — менять ничего не обязательно.', [
+				toggleRow('autostart', 'Запускать при включении роутера', 'VPN поднимется сам после перезагрузки', s.autostart, true),
+				optRow('Автообновление подписок', 'Подтягивает новые серверы от провайдера', select('update_interval', [['0', 'Выключено'], ['6', 'Каждые 6 часов'], ['12', 'Каждые 12 часов'], ['24', 'Раз в сутки'], ['72', 'Раз в 3 дня'], ['168', 'Раз в неделю']], s.update_interval == null ? 24 : s.update_interval)),
+				toggleRow('kill_switch', 'Kill Switch', 'Блокировать интернет у клиентов, если VPN упал', s.kill_switch)
+			]),
+			section('route', 'Что пускать через VPN', null, [
+				F.route.el, routeHint, presetBox,
+				E('div', { 'class': 'hv-label' }, ['Свои исключения', E('span', {}, 'Домены или подсети, которые всегда идут напрямую')]),
+				area('direct_domains', s.direct_domains, 'example.com\nbank.ru\n203.0.113.0/24')
+			]),
+			section('laptop', 'Для каких устройств', 'По умолчанию VPN работает для всех, кто подключён к роутеру.', [F.mode.el, devWrap])
+		]);
+
+		var right = E('div', { 'class': 'hv-colm' }, [
+			section('zap', 'Автовыбор сервера', 'В режиме «Авто» роутер сам замеряет пинг и переключается на самый быстрый сервер.', [
+				optRow('Частота проверки', 'Как часто заново измерять пинг', select('auto_interval', [['30s', 'Каждые 30 секунд'], ['1m', 'Каждую минуту'], ['3m', 'Каждые 3 минуты'], ['5m', 'Каждые 5 минут'], ['10m', 'Каждые 10 минут']], s.auto_interval || '3m'), true),
+				optRow('Порог переключения', 'Переключится, если другой сервер быстрее на столько мс', input('auto_tolerance', s.auto_tolerance == null ? 80 : s.auto_tolerance, '80')),
+				optRow('Адрес проверки', 'URL для замера задержки', input('auto_test_url', s.auto_test_url || 'https://www.gstatic.com/generate_204'), false, true)
+			]),
+			section('shield', 'DNS и защита', 'Тонкие настройки — обычно трогать не нужно.', [
+				toggleRow('dns_vpn', 'DNS через VPN', 'DNS-запросы клиентов уходят через туннель (DoT)', (s.dns_mode || 'vpn') === 'vpn', true),
+				optRow('Удалённый DNS', 'DNS-сервер внутри VPN', [dnsSel, dnsCustom], false, true),
+				toggleRow('block_ipv6', 'Блокировать IPv6', 'Иначе IPv6-трафик клиентов утечёт мимо VPN', s.block_ipv6 !== false),
+				toggleRow('block_quic', 'Блокировать QUIC', 'Отключает UDP/443 — браузеры переходят на TCP (может помочь с YouTube)', s.block_quic !== false),
+				toggleRow('bypass_vpn', 'VPN-серверы мимо туннеля', 'Если на телефоне или ПК запущен свой VPN с теми же серверами, он продолжит работать', s.bypass_vpn !== false)
+			]),
+			section('sliders', 'Дополнительно', null, [
+				optRow('Стек TUN', 'system — быстрее, gvisor — совместимее', select('tun_stack', [['system', 'system'], ['gvisor', 'gvisor'], ['mixed', 'mixed']], s.tun_stack || 'system'), true),
+				optRow('MTU', 'Размер пакета (обычно 1400)', input('mtu', s.mtu || 1400, '1400')),
+				optRow('Интерфейсы', 'Из каких сетей брать клиентов (через пробел)', input('ifaces', (s.ifaces || ['lan']).join(' '), 'lan')),
+				optRow('Уровень логов', '', select('log_level', [['error', 'error'], ['warn', 'warn'], ['info', 'info'], ['debug', 'debug']], s.log_level || 'warn')),
+				optRow('User-Agent', 'При скачивании подписок (Happ — как с Android)', input('user_agent', s.user_agent || 'Happ/3.13.0'), false, true),
+				optRow('HWID роутера', 'Идентификатор устройства для лимита в подписке', hwidRow, false, true)
+			])
+		]);
 
 		this.paneSet.appendChild(E('div', { 'class': 'hv-set' }, [left, right]));
-		this.paneSet.appendChild(E('div', { 'class': 'hv-save' }, [E('div', { 'class': 'in' }, [resetBtn, saveBtn])]));
+
+		this.paneSet.appendChild(E('div', { 'class': 'hv-card hv-danger' }, [
+			E('div', { 'class': 't' }, [E('b', {}, 'Сбросить серверы'), E('span', {}, 'Удалит все подписки и ключи и остановит VPN. Настройки сохранятся.')]),
+			E('button', { type: 'button', 'class': 'hv-btn dng', click: function () { self.resetAll(); } }, [ic('trash'), E('span', {}, 'Удалить все серверы')])
+		]));
+
+		this.saveMsg = E('div', { 'class': 'msg' });
+		this.saveBtn = E('button', { type: 'button', 'class': 'hv-btn', click: function () { self.saveSettings(); } }, [ic('check'), E('span', {}, 'Сохранить')]);
+		this.revertBtn = E('button', { type: 'button', 'class': 'hv-btn ghost', click: function () { self.buildSettings(); self.loadDevices(); self.toast('Изменения отменены'); } }, 'Отменить');
+		this.saveBar = E('div', { 'class': 'hv-save' }, [E('div', { 'class': 'in' }, [this.saveMsg, this.revertBtn, this.saveBtn])]);
+		this.paneSet.appendChild(this.saveBar);
+		this.updateSaveBar();
+
+		/* любое изменение полей → «есть несохранённые» */
+		var dirty = function () { self.markDirty(); };
+		this.paneSet.addEventListener('input', dirty);
+		this.paneSet.addEventListener('change', dirty);
+		this.drawDevices();
 	},
 
-	saveSettings: function (btn) {
-		var self = this, F = this.F;
-		var dns = F.dns_sel.value === 'custom' ? F.dns_custom.value.trim() : F.dns_sel.value;
-		if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(dns)) { this.toast('DNS-сервер должен быть IP-адресом, например 1.1.1.1', true); return; }
-		var mtu = parseInt(F.mtu.value, 10);
-		if (!(mtu >= 1000 && mtu <= 9000)) { this.toast('MTU должен быть от 1000 до 9000', true); return; }
-		var mode = F.mode.value;
-		if (mode !== 'all' && !this.chosenDevices.length) { this.toast('Выберите хотя бы одно устройство или оставьте «Все устройства»', true); return; }
-		var tolerance = parseInt(F.auto_tolerance.value, 10);
-		if (!(tolerance >= 0 && tolerance <= 1000)) { this.toast('Порог переключения должен быть от 0 до 1000 мс', true); return; }
+	saveSettings: function () {
+		var self = this, F = this.F, btn = this.saveBtn;
+		var fail = function (field, msg) {
+			if (field && field.el) { field.el.classList.add('bad'); field.el.focus(); }
+			self.toast(msg, true);
+		};
 
-		var route = F.route.value;
-		var proxyList = F.proxy_domains.value.split(/[\s,;]+/).filter(Boolean);
+		var custom = F.dns_sel.get() === 'custom';
+		var dns = custom ? F.dns_custom.get() : F.dns_sel.get();
+		if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(dns) || dns.split('.').some(function (n) { return +n > 255; }))
+			return fail(custom ? F.dns_custom : F.dns_sel, 'DNS-сервер должен быть IP-адресом, например 1.1.1.1');
+		var mtu = parseInt(F.mtu.get(), 10);
+		if (!(mtu >= 1000 && mtu <= 9000)) return fail(F.mtu, 'MTU должен быть от 1000 до 9000');
+		var tolerance = parseInt(F.auto_tolerance.get(), 10);
+		if (!(tolerance >= 0 && tolerance <= 1000)) return fail(F.auto_tolerance, 'Порог переключения должен быть от 0 до 1000 мс');
+		var testUrl = F.auto_test_url.get() || 'https://www.gstatic.com/generate_204';
+		if (!/^https?:\/\/\S+$/.test(testUrl)) return fail(F.auto_test_url, 'Адрес проверки должен начинаться с http:// или https://');
+		var ifaces = F.ifaces.get().split(/[\s,]+/).filter(Boolean);
+		if (!ifaces.length || ifaces.some(function (n) { return !/^[A-Za-z0-9_]{1,15}$/.test(n); }))
+			return fail(F.ifaces, 'Интерфейсы: имена сетей через пробел, например lan');
+		var mode = F.mode.get();
+		if (mode !== 'all' && !this.chosenDevices.length) { this.toast('Выберите хотя бы одно устройство или оставьте «Все»', true); return; }
+
+		var route = F.route.get(), proxyList = F.proxy_domains.get();
 		if (route === 'selected' && !this.chosenPresets.length && !proxyList.length) { this.toast('Отметьте хотя бы один сервис или добавьте свой сайт', true); return; }
 
 		var settings = {
@@ -1045,68 +1399,95 @@ return view.extend({
 			proxy_domains: proxyList,
 			mode: mode,
 			devices: this.chosenDevices,
-			update_interval: parseInt(F.update_interval.value, 10),
+			update_interval: parseInt(F.update_interval.get(), 10),
 			bypass_ru: route === 'no_ru',
-			direct_domains: F.direct_domains.value.split(/[\s,;]+/).filter(Boolean),
-			kill_switch: F.kill_switch.checked,
-			dns_mode: F.dns_vpn.checked ? 'vpn' : 'system',
-			block_ipv6: F.block_ipv6.checked,
-			block_quic: F.block_quic.checked,
-			bypass_vpn: F.bypass_vpn.checked,
+			direct_domains: F.direct_domains.get(),
+			kill_switch: F.kill_switch.get(),
+			dns_mode: F.dns_vpn.get() ? 'vpn' : 'system',
+			block_ipv6: F.block_ipv6.get(),
+			block_quic: F.block_quic.get(),
+			bypass_vpn: F.bypass_vpn.get(),
 			remote_dns: dns,
-			tun_stack: F.tun_stack.value,
+			tun_stack: F.tun_stack.get(),
 			mtu: mtu,
-			log_level: F.log_level.value,
-			ifaces: F.ifaces.value.split(/[\s,]+/).filter(Boolean),
-			user_agent: F.user_agent.value.trim() || 'Happ/3.13.0',
-			autostart: F.autostart.checked,
-			auto_interval: F.auto_interval.value,
+			log_level: F.log_level.get(),
+			ifaces: ifaces,
+			user_agent: F.user_agent.get() || 'Happ/3.13.0',
+			autostart: F.autostart.get(),
+			auto_interval: F.auto_interval.get(),
 			auto_tolerance: tolerance,
-			auto_test_url: F.auto_test_url.value.trim() || 'https://www.gstatic.com/generate_204'
+			auto_test_url: testUrl
 		};
 		btn.disabled = true;
 		rSet(settings).then(function (r) {
-			btn.disabled = false;
-			if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось сохранить', true); return; }
+			if (!r || !r.ok) { btn.disabled = false; self.toast((r && r.error) || 'Не удалось сохранить', true); return; }
 			var running = self.S.status && (self.S.status.running || self.S.status.connected);
-			self.toast(running ? 'Сохранено — перезапускаю VPN…' : 'Сохранено');
 			Object.assign(self.S.settings, settings);
-			if (running) { self.connect(); }
+			self._dirty = false;
+			self.updateSaveBar();
+			if (r.ignored && r.ignored.length) {
+				self.toast('Сохранено, но часть значений отклонена: ' + r.ignored.slice(0, 4).join(', '), 'warn');
+			} else self.toast(running ? 'Сохранено — перезапускаю VPN…' : 'Сохранено');
+			if (running) self.connect();
 			self.refreshAll();
-		}).catch(function () { btn.disabled = false; self.toast('Не удалось сохранить', true); });
+		}).catch(function () { btn.disabled = false; self.toast('Не удалось сохранить: роутер не ответил', true); });
 	},
 
 	resetAll: function () {
 		var self = this;
-		if (!window.confirm('Удалить все подписки и серверы?')) return;
-		this.busy = null;
-		rClear().then(function () {
-			self.S.status = Object.assign({}, self.S.status, { connected: false, running: false, error: '' });
-			self.toast('Серверы удалены');
-			self.setTab('main');
-			self.refreshAll();
+		this.confirmDlg('Удалить все серверы?', 'Все подписки и ключи будут удалены, VPN остановится. Настройки сохранятся. Это действие нельзя отменить.', 'Удалить всё', true, function () {
+			self.busy = null;
+			rClear().then(function () {
+				self.S.status = Object.assign({}, self.S.status, { connected: false, running: false, phase: 'off', error: '' });
+				self.check = null;
+				self.toast('Серверы удалены');
+				self.setTab('main');
+				self.refreshAll();
+			}).catch(function () { self.toast('Не удалось удалить', true); });
 		});
 	},
 
 	/* ───── журнал ───── */
 
-	loadLogs: function () {
+	renderLog: function (text) {
+		var box = this.logBox, atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+		box.innerHTML = '';
+		if (!text) { box.textContent = 'Журнал пуст'; return; }
+		var frag = document.createDocumentFragment();
+		text.split('\n').forEach(function (ln) {
+			var cls = /^==/.test(ln) ? 'h' : /fatal|error|ERROR/.test(ln) ? 'e' : /warn|WARN/.test(ln) ? 'w' : '';
+			frag.appendChild(E('span', cls ? { 'class': cls } : {}, ln + '\n'));
+		});
+		box.appendChild(frag);
+		if (atEnd || !this._logShown) box.scrollTop = box.scrollHeight;
+		this._logShown = true;
+	},
+
+	loadLogs: function (quiet) {
 		var self = this;
 		if (!this.logBox) {
-			this.logBox = E('pre', { 'class': 'hv-log' }, 'Загрузка…');
-			var refreshBtn = E('button', { 'class': 'hv-ibtn', title: 'Обновить', click: function () { self.loadLogs(); } }, [ic('refresh')]);
-			var clearBtn = E('button', { 'class': 'hv-ibtn', title: 'Очистить', click: function () {
-				rClearLog().then(function () { self.loadLogs(); });
+			this.logBox = E('pre', { 'class': 'hv-log', tabindex: '0' }, 'Загрузка…');
+			var autoCb = E('input', { type: 'checkbox' });
+			autoCb.checked = this.autoLog;
+			autoCb.addEventListener('change', function () { self.autoLog = autoCb.checked; });
+			var refreshBtn = E('button', { type: 'button', 'class': 'hv-ibtn', title: 'Обновить', 'aria-label': 'Обновить журнал', click: function () { self.loadLogs(); } }, [ic('refresh')]);
+			var copyBtn = E('button', { type: 'button', 'class': 'hv-ibtn', title: 'Скопировать журнал', 'aria-label': 'Скопировать журнал', click: function () {
+				copyText(self.logBox.textContent).then(function () { self.toast('Журнал скопирован'); }, function () { self.toast('Не удалось скопировать — выделите вручную', true); });
+			} }, [ic('copy')]);
+			var clearBtn = E('button', { type: 'button', 'class': 'hv-ibtn dng', title: 'Очистить журнал sing-box', 'aria-label': 'Очистить журнал', click: function () {
+				rClearLog().then(function () { self._logShown = false; self.loadLogs(); });
 			} }, [ic('trash')]);
 			this.paneLog.appendChild(E('div', { 'class': 'hv-card' }, [
-				E('div', { 'class': 'hv-h' }, [E('span', {}, 'Журнал'), E('div', { style: 'display:flex;gap:6px' }, [refreshBtn, clearBtn])]),
-				this.logBox
+				E('div', { 'class': 'hv-h' }, [E('b', {}, [ic('doc'), 'Журнал']),
+					E('div', { 'class': 'acts', style: 'align-items:center' }, [E('label', { 'class': 'hv-auto' }, [autoCb, 'Обновлять']), refreshBtn, copyBtn, clearBtn])]),
+				this.logBox,
+				E('div', { 'class': 'hv-hint' }, 'Не публикуйте журнал целиком — в нём могут быть адреса ваших серверов.')
 			]));
 		}
 		rLogs().then(function (r) {
-			self.logBox.textContent = (r && (r.log || r.logs)) || 'Журнал пуст';
+			self.renderLog((r && (r.log || r.logs)) || '');
 		}).catch(function () {
-			self.logBox.textContent = 'Не удалось загрузить журнал';
+			if (!quiet) self.logBox.textContent = 'Не удалось загрузить журнал';
 		});
 	}
 });
