@@ -1,0 +1,14 @@
+{
+	"admin/services/vless": {
+		"title": "VPN",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "vless/main"
+		},
+		"depends": {
+			"acl": [ "luci-vless-selective" ],
+			"uci": { "vless": true }
+		}
+	}
+}

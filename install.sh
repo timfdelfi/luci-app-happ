@@ -1,5 +1,5 @@
 #!/bin/sh
-# Установка VPN (luci-app-happ) на роутер OpenWrt.
+# Установка VPN (luci-vless-selective) на роутер OpenWrt.
 # Запускать на роутере:  sh install.sh
 cd "$(dirname "$0")" || exit 1
 
@@ -34,14 +34,14 @@ if [ "${major:-0}" -lt 1 ] || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -lt 1
 fi
 
 say "Копирую файлы"
-[ -f /etc/config/happ ] && cp /etc/config/happ /tmp/happ.config.keep
+[ -f /etc/config/vless ] && cp /etc/config/vless /tmp/vless.config.keep
 cp -a root/. /
 cp -a htdocs/. /www/
-[ -f /tmp/happ.config.keep ] && { cp /tmp/happ.config.keep /etc/config/happ; rm -f /tmp/happ.config.keep; }
-chmod 0755 /usr/bin/happ /usr/libexec/rpcd/happ /etc/init.d/happ /etc/uci-defaults/90-happ 2>/dev/null
+[ -f /tmp/vless.config.keep ] && { cp /tmp/vless.config.keep /etc/config/vless; rm -f /tmp/vless.config.keep; }
+chmod 0755 /usr/bin/vless /usr/libexec/rpcd/vless /etc/init.d/vless /etc/uci-defaults/90-vless 2>/dev/null
 
 say "Применяю настройки"
-[ -x /etc/uci-defaults/90-happ ] && { sh /etc/uci-defaults/90-happ; rm -f /etc/uci-defaults/90-happ; }
+[ -x /etc/uci-defaults/90-vless ] && { sh /etc/uci-defaults/90-vless; rm -f /etc/uci-defaults/90-vless; }
 /etc/init.d/rpcd restart >/dev/null 2>&1
 /etc/init.d/firewall reload >/dev/null 2>&1
 rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache 2>/dev/null
@@ -49,7 +49,7 @@ rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache 2>/dev/null
 pgrep -x sing-box >/dev/null 2>&1 && warn "Уже запущен другой sing-box (возможно, Podkop). Перед подключением остановите его — два VPN одновременно мешают друг другу."
 
 say "Самопроверка"
-/usr/bin/happ selftest
+/usr/bin/vless selftest
 
 say "Готово!"
 echo "Откройте веб-интерфейс роутера → Службы → VPN"

@@ -7,7 +7,7 @@ case "$cmd" in
 	get)
 		v="$(awk -F"$T" -v k="$1" '$1==k{printf "%s%s", (n++?" ":""), $2}' "$DB")"
 		[ -n "$v" ] && { printf '%s\n' "$v"; exit 0; }
-		[ "$1" = "happ.main" ] && grep -q "^happ.main$T" "$DB" && { echo happ; exit 0; }
+		[ "$1" = "vless.main" ] && grep -q "^vless.main$T" "$DB" && { echo vless; exit 0; }
 		exit 1 ;;
 	set)  k="${1%%=*}"; v="${1#*=}"; grep -v "^$k$T" "$DB" > "$DB.n"; printf '%s\t%s\n' "$k" "$v" >> "$DB.n"; mv "$DB.n" "$DB" ;;
 	add_list) k="${1%%=*}"; v="${1#*=}"; printf '%s\t%s\n' "$k" "$v" >> "$DB" ;;

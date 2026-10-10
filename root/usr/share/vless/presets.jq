@@ -1,6 +1,6 @@
 # presets.jq — готовые наборы сервисов для режима «Только выбранные сервисы».
-# Подключается из build.jq (include "presets") и из /usr/bin/happ (selective-lists).
-# Ключи должны совпадать с PRESET_KEYS в /usr/bin/happ и списком в интерфейсе.
+# Подключается из build.jq (include "presets") и из /usr/bin/vless (selective-lists).
+# Ключи должны совпадать с PRESET_KEYS в /usr/bin/vless и списком в интерфейсе.
 
 def presets: {
   telegram: {
@@ -16,7 +16,9 @@ def presets: {
   },
   discord: {
     domains: ["discord.com", "discord.gg", "discordapp.com", "discordapp.net", "discord.media",
-              "discordcdn.com", "discord.gift", "discord.new", "discordstatus.com"]
+              "discordcdn.com", "discord.gift", "discord.new", "discordstatus.com"],
+    # голосовой сервер Discord (Google Cloud), наблюдался в UDP-потоке; в DNS не попадает
+    cidrs: ["35.217.0.0/16"]
   },
   meta: {
     domains: ["facebook.com", "fb.com", "fb.me", "fbcdn.net", "fbsbx.com", "facebook.net", "messenger.com",

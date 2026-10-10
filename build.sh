@@ -1,6 +1,6 @@
 #!/bin/sh
 # Сборка установочных пакетов без OpenWrt SDK.
-#   sh build.sh   ->   dist/happ-vpn.zip (Windows), dist/happ-vpn.tar.gz и dist/luci-app-happ_<версия>_all.ipk
+#   sh build.sh   ->   dist/vless-vpn.zip (Windows), dist/vless-vpn.tar.gz и dist/luci-vless-selective_<версия>_all.ipk
 set -e
 cd "$(dirname "$0")"
 VER="$(tr -d '\r\n' < VERSION)"
@@ -15,17 +15,17 @@ command -v ar >/dev/null 2>&1 || {
 OUT="$PWD/dist"; W="$(mktemp -d)"
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$OUT"
-rm -f "$OUT/happ-vpn.tar.gz" "$OUT/happ-vpn.zip" "$OUT/luci-app-happ_${VER}_all.ipk"
+rm -f "$OUT/vless-vpn.tar.gz" "$OUT/vless-vpn.zip" "$OUT/luci-vless-selective_${VER}_all.ipk"
 
-chmod 0755 root/usr/bin/happ root/usr/libexec/rpcd/happ root/etc/init.d/happ root/etc/uci-defaults/90-happ install.sh uninstall.sh
+chmod 0755 root/usr/bin/vless root/usr/libexec/rpcd/vless root/etc/init.d/vless root/etc/uci-defaults/90-vless install.sh uninstall.sh
 
 # 1) универсальный установщик (opkg и apk)
-mkdir -p "$W/happ-vpn"
-cp -a root htdocs install.sh uninstall.sh INSTALL.bat "$W/happ-vpn/"
-find "$W/happ-vpn" -type f ! -name INSTALL.bat -exec sed -i 's/\r$//' {} +
-tar --owner=0 --group=0 --numeric-owner -C "$W" -czf "$OUT/happ-vpn.tar.gz" happ-vpn
+mkdir -p "$W/vless-vpn"
+cp -a root htdocs install.sh uninstall.sh INSTALL.bat "$W/vless-vpn/"
+find "$W/vless-vpn" -type f ! -name INSTALL.bat -exec sed -i 's/\r$//' {} +
+tar --owner=0 --group=0 --numeric-owner -C "$W" -czf "$OUT/vless-vpn.tar.gz" vless-vpn
 # zip для Windows: распаковать и запустить INSTALL.bat
-if command -v zip >/dev/null 2>&1; then ( cd "$W" && zip -qr "$OUT/happ-vpn.zip" happ-vpn ); else echo "zip не найден — happ-vpn.zip не создан"; fi
+if command -v zip >/dev/null 2>&1; then ( cd "$W" && zip -qr "$OUT/vless-vpn.zip" vless-vpn ); else echo "zip не найден — vless-vpn.zip не создан"; fi
 
 # 2) .ipk для opkg (OpenWrt 24.10 и старше)
 mkdir -p "$W/data/www" "$W/ctl"
@@ -33,19 +33,19 @@ cp -a root/. "$W/data/"
 cp -a htdocs/. "$W/data/www/"
 find "$W/data" "$W/ctl" -type f -exec sed -i 's/\r$//' {} +
 cat > "$W/ctl/control" <<C
-Package: luci-app-happ
+Package: luci-vless-selective
 Version: $VER
 Depends: luci-base, rpcd, sing-box, kmod-tun, curl, jq, ca-bundle, ip-full
 Section: luci
 Architecture: all
 Maintainer: OpenWrt User
-Description: VPN в стиле Happ для OpenWrt: вставил ссылку, нажал кнопку, работает
+Description: VPN для OpenWrt: вставил ссылку, нажал кнопку, работает
 C
-echo /etc/config/happ > "$W/ctl/conffiles"
+echo /etc/config/vless > "$W/ctl/conffiles"
 cat > "$W/ctl/postinst" <<'C'
 #!/bin/sh
 [ -n "$IPKG_INSTROOT" ] && exit 0
-[ -x /etc/uci-defaults/90-happ ] && { sh /etc/uci-defaults/90-happ; rm -f /etc/uci-defaults/90-happ; }
+[ -x /etc/uci-defaults/90-vless ] && { sh /etc/uci-defaults/90-vless; rm -f /etc/uci-defaults/90-vless; }
 /etc/init.d/rpcd restart >/dev/null 2>&1
 /etc/init.d/firewall reload >/dev/null 2>&1
 rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache 2>/dev/null
@@ -54,13 +54,13 @@ C
 cat > "$W/ctl/prerm" <<'C'
 #!/bin/sh
 [ -n "$IPKG_INSTROOT" ] && exit 0
-/etc/init.d/happ stop >/dev/null 2>&1
-/etc/init.d/happ disable >/dev/null 2>&1
+/etc/init.d/vless stop >/dev/null 2>&1
+/etc/init.d/vless disable >/dev/null 2>&1
 exit 0
 C
 chmod 0755 "$W/ctl/postinst" "$W/ctl/prerm"
 ( cd "$W/ctl" && tar --owner=0 --group=0 --numeric-owner -czf "$W/control.tar.gz" . )
 ( cd "$W/data" && tar --owner=0 --group=0 --numeric-owner -czf "$W/data.tar.gz" . )
 echo 2.0 > "$W/debian-binary"
-( cd "$W" && ar -cr "$OUT/luci-app-happ_${VER}_all.ipk" debian-binary data.tar.gz control.tar.gz )
+( cd "$W" && ar -cr "$OUT/luci-vless-selective_${VER}_all.ipk" debian-binary data.tar.gz control.tar.gz )
 ls -l "$OUT"

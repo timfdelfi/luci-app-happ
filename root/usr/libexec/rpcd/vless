@@ -1,17 +1,17 @@
 #!/bin/sh
-# rpcd-плагин: мост между веб-интерфейсом LuCI и /usr/bin/happ
+# rpcd-плагин: мост между веб-интерфейсом LuCI и /usr/bin/vless
 
-HAPP="${HAPP_BIN:-/usr/bin/happ}"
+VLESS="${VLESS_BIN:-/usr/bin/vless}"
 
 # run КОМАНДА [АРГУМЕНТЫ…] — вызвать бэкенд; если он ничего не вернул или вернул не JSON,
 # отдаём интерфейсу понятную ошибку вместо пустого ответа
 run() {
 	local out
-	out="$("$HAPP" "$@" 2>/dev/null)"
+	out="$("$VLESS" "$@" 2>/dev/null)"
 	if [ -n "$out" ] && printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
 		printf '%s\n' "$out"
 	else
-		printf '{"ok":false,"error":"Бэкенд не ответил (команда %s). Выполните на роутере: happ selftest"}\n' "$1"
+		printf '{"ok":false,"error":"Бэкенд не ответил (команда %s). Выполните на роутере: vless selftest"}\n' "$1"
 	fi
 }
 
@@ -48,7 +48,7 @@ JSON
 			add)
 				run add "$(arg text)" ;;
 			set)
-				out="$(printf '%s' "$IN" | jq -c '.settings // {}' | "$HAPP" set 2>/dev/null)"
+				out="$(printf '%s' "$IN" | jq -c '.settings // {}' | "$VLESS" set 2>/dev/null)"
 				if [ -n "$out" ]; then printf '%s\n' "$out"; else echo '{"ok":false,"error":"Не удалось сохранить настройки"}'; fi ;;
 			*)
 				echo '{"ok":false,"error":"unknown method"}' ;;

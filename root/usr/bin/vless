@@ -1,18 +1,18 @@
 #!/bin/sh
-# happ — бэкенд приложения «VPN» (luci-app-happ)
+# vless — бэкенд приложения «VPN» (luci-vless-selective)
 # Управляет подписками, собирает конфиг sing-box, поднимает маршрутизацию и DNS.
 # Все команды печатают JSON, чтобы их мог вызывать веб-интерфейс.
 
-DIR="${HAPP_DIR:-/etc/happ}"
-RUN="${HAPP_RUN:-/var/run/happ}"
-LIB="${HAPP_LIB:-/usr/share/happ}"
+DIR="${VLESS_DIR:-/etc/vless}"
+RUN="${VLESS_RUN:-/var/run/vless}"
+LIB="${VLESS_LIB:-/usr/share/vless}"
 SERVERS="$DIR/servers.json"
 SOURCES="$DIR/sources.json"
 HIDDEN="$DIR/hidden.json"   # серверы подписок, удалённые пользователем: [{id,source}]
 CONFIG="$RUN/config.json"
-PIDFILE="${HAPP_PID:-/var/run/happ.pid}"
+PIDFILE="${VLESS_PID:-/var/run/vless.pid}"
 
-TUN="happ0"
+TUN="vless0"
 TABLE=100
 API_PORT=9099
 MIXED_PORT=2080
@@ -30,13 +30,13 @@ PRESET_KEYS="telegram youtube discord meta x ai adult"
 
 # Подписки скачиваются «как Happ на Android»: панели (Remnawave, Marzban и др.) по этим
 # заголовкам решают, какой формат отдать, и не подсовывают заглушку «клиент не поддерживается».
-HAPP_UA_DEFAULT="Happ/3.13.0"
-HAPP_ANDROID_VER="15"
-HAPP_DEVICE_MODEL="Pixel 8"
+VLESS_UA_DEFAULT="Happ/3.13.0"
+VLESS_ANDROID_VER="15"
+VLESS_DEVICE_MODEL="Pixel 8"
 
 # ---------------------------------------------------------------- утилиты
 
-cfg()  { local v; v="$(uci -q get happ.main."$1" 2>/dev/null)"; [ -n "$v" ] && echo "$v" || echo "$2"; }
+cfg()  { local v; v="$(uci -q get vless.main."$1" 2>/dev/null)"; [ -n "$v" ] && echo "$v" || echo "$2"; }
 cfgb() { [ "$(cfg "$1" "$2")" = "1" ]; }
 
 json_err() { jq -n -c --arg e "$1" '{ok:false,error:$e}'; }
@@ -102,11 +102,11 @@ locked() { # locked КОМАНДА [АРГУМЕНТЫ…]
 
 settings_json() {
 	local dd dev ifs pd pr
-	dd="$(uci -q get happ.main.direct_domains 2>/dev/null)"
-	dev="$(uci -q get happ.main.devices 2>/dev/null)"
-	ifs="$(uci -q get happ.main.ifaces 2>/dev/null)"
-	pd="$(uci -q get happ.main.proxy_domains 2>/dev/null)"
-	pr="$(uci -q get happ.main.presets 2>/dev/null)"
+	dd="$(uci -q get vless.main.direct_domains 2>/dev/null)"
+	dev="$(uci -q get vless.main.devices 2>/dev/null)"
+	ifs="$(uci -q get vless.main.ifaces 2>/dev/null)"
+	pd="$(uci -q get vless.main.proxy_domains 2>/dev/null)"
+	pr="$(uci -q get vless.main.presets 2>/dev/null)"
 	jq -n -c \
 		--arg scope "$(cfg scope all)" --arg pd "$pd" --arg pr "$pr" \
 		--arg mode "$(cfg mode all)" \
@@ -121,7 +121,7 @@ settings_json() {
 		--arg tun_stack "$(cfg tun_stack system)" \
 		--arg mtu "$(cfg mtu 1400)" \
 		--arg log_level "$(cfg log_level warn)" \
-		--arg user_agent "$(cfg user_agent "$HAPP_UA_DEFAULT")" --arg hwid "$(get_hwid)" \
+		--arg user_agent "$(cfg user_agent "$VLESS_UA_DEFAULT")" --arg hwid "$(get_hwid)" \
 		--arg update_interval "$(cfg update_interval 24)" \
 		--arg selected "$(cfg selected auto)" \
 		--arg auto_interval "$(cfg auto_interval 3m)" \
@@ -146,7 +146,7 @@ cmd_set() {
 	data="$(cat)"
 	: > "$rej"
 	printf '%s\n' "$data" | jq -e 'type=="object"' >/dev/null 2>&1 || { json_err "Некорректные настройки"; return 1; }
-	uci -q get happ.main >/dev/null 2>&1 || { uci set happ.main=happ; }
+	uci -q get vless.main >/dev/null 2>&1 || { uci set vless.main=vless; }
 
 	# скаляры
 	printf '%s\n' "$data" | jq -r '
@@ -174,13 +174,13 @@ cmd_set() {
 			user_agent)     { [ ${#v} -le 80 ] && [ -n "$v" ]; } || bad=1 ;;
 		esac
 		if [ "$bad" = 1 ]; then echo "$k" >> "$rej"; continue; fi
-		uci set "happ.main.$k=$v"
+		uci set "vless.main.$k=$v"
 	done
 
 	# списки
 	for k in direct_domains proxy_domains presets devices ifaces; do
 		if printf '%s\n' "$data" | jq -e --arg k "$k" 'has($k)' >/dev/null 2>&1; then
-			uci -q delete "happ.main.$k"
+			uci -q delete "vless.main.$k"
 			printf '%s\n' "$data" | jq -r --arg k "$k" '.[$k][]? | tostring' | while read -r line; do
 				[ -n "$line" ] || continue
 				case "$k" in
@@ -189,17 +189,17 @@ cmd_set() {
 					ifaces)   echo "$line" | grep -qE '^[A-Za-z0-9_]{1,15}$' || { echo "$k: $line" >> "$rej"; continue; } ;;
 					*)        echo "$line" | grep -qE '^[A-Za-z0-9.*/:_-]{1,100}$' || { echo "$k: $line" >> "$rej"; continue; } ;;
 				esac
-				uci add_list "happ.main.$k=$line"
+				uci add_list "vless.main.$k=$line"
 			done
 		fi
 	done
-	uci commit happ
+	uci commit vless
 
 	if printf '%s\n' "$data" | jq -e 'has("autostart")' >/dev/null 2>&1; then
 		if [ "$(printf '%s\n' "$data" | jq -r '.autostart')" = "true" ]; then
-			/etc/init.d/happ enable
+			/etc/init.d/vless enable
 		else
-			/etc/init.d/happ disable
+			/etc/init.d/vless disable
 		fi
 	fi
 	sync_cron
@@ -212,13 +212,13 @@ cron_spec() {
 }
 
 sync_cron() {
-	local n f="${HAPP_CRON:-/etc/crontabs/root}"
+	local n f="${VLESS_CRON:-/etc/crontabs/root}"
 	n="$(cfg update_interval 24)"
 	mkdir -p "$(dirname "$f")"
 	[ -f "$f" ] || touch "$f"
-	grep -v '/usr/bin/happ update-all' "$f" > "$f.tmp" 2>/dev/null
+	grep -v '/usr/bin/vless update-all' "$f" > "$f.tmp" 2>/dev/null
 	if [ "$n" -gt 0 ] 2>/dev/null; then
-		echo "$(cron_spec "$n") /usr/bin/happ update-all >/dev/null 2>&1" >> "$f.tmp"
+		echo "$(cron_spec "$n") /usr/bin/vless update-all >/dev/null 2>&1" >> "$f.tmp"
 	fi
 	if ! cmp -s "$f" "$f.tmp"; then
 		mv "$f.tmp" "$f"
@@ -228,7 +228,7 @@ sync_cron() {
 	fi
 }
 
-autostart_on() { ls /etc/rc.d/S*happ >/dev/null 2>&1; }
+autostart_on() { ls /etc/rc.d/S*vless >/dev/null 2>&1; }
 
 # ---------------------------------------------------------------- подписки и серверы
 
@@ -246,12 +246,12 @@ get_hwid() {
 # sub_curl [аргументы curl] URL — curl с заголовками Happ для Android.
 # Если пользователь задал свой User-Agent (не Happ), отправляется только он.
 sub_curl() {
-	local ua; ua="$(cfg user_agent "$HAPP_UA_DEFAULT")"
+	local ua; ua="$(cfg user_agent "$VLESS_UA_DEFAULT")"
 	case "$ua" in
-		Happ/*|happ/*)
+		Happ/*|vless/*)
 			curl -sSL -m 10 --connect-timeout 5 -A "$ua" \
-				-H "X-Device-Os: Android" -H "X-Ver-Os: $HAPP_ANDROID_VER" \
-				-H "X-Device-Model: $HAPP_DEVICE_MODEL" -H "X-Device-Locale: ru" \
+				-H "X-Device-Os: Android" -H "X-Ver-Os: $VLESS_ANDROID_VER" \
+				-H "X-Device-Model: $VLESS_DEVICE_MODEL" -H "X-Device-Locale: ru" \
 				-H "X-Hwid: $(get_hwid)" "$@" ;;
 		*)
 			curl -sSL -m 10 --connect-timeout 5 -A "$ua" "$@" ;;
@@ -396,14 +396,14 @@ add_links() { # add_links TEXT
 }
 
 restart_if_running() {
-	if is_running; then /etc/init.d/happ restart >/dev/null 2>&1; fi
+	if is_running; then /etc/init.d/vless restart >/dev/null 2>&1; fi
 }
 
-# unwrap_link — ссылки-«обёртки» приложений (happ://add/URL, clash://install-config?url=URL …)
+# unwrap_link — ссылки-«обёртки» приложений (vless://add/URL, clash://install-config?url=URL …)
 unwrap_link() {
 	local u
 	case "$1" in
-		happ://add/http*|happ://import/http*) printf '%s' "${1#happ://*/}" ;;
+		vless://add/http*|vless://import/http*) printf '%s' "${1#vless://*/}" ;;
 		clash://install-config?url=*|sing-box://import-remote-profile?url=*)
 			u="${1#*url=}"; u="${u%%&*}"
 			printf '%s' "$u" | sed 's/%3A/:/Ig;s/%2F/\//Ig;s/%3F/?/Ig;s/%3D/=/Ig;s/%26/\&/Ig' ;;
@@ -442,7 +442,7 @@ cmd_refresh() { # refresh [ID]
 	# выбранный сервер мог исчезнуть
 	local sel; sel="$(cfg selected auto)"
 	if [ "$sel" != "auto" ] && [ "$(jq --arg s "$sel" '[.[]|select(.id==$s)]|length' "$SERVERS")" = "0" ]; then
-		uci set happ.main.selected=auto; uci commit happ
+		uci set vless.main.selected=auto; uci commit vless
 	fi
 	[ "$before" != "$after" ] && restart_if_running
 	jq -n -c --argjson ok "$ok" --argjson fail "$fail" --arg e "${last:-}" '{ok:($fail==0),updated:$ok,failed:$fail,error:$e}'
@@ -469,10 +469,10 @@ cmd_remove() { # remove ID (источник или одиночный серв�
 	fi
 	sel="$(cfg selected auto)"
 	if [ "$sel" != "auto" ] && [ "$(jq --arg s "$sel" '[.[]|select(.id==$s)]|length' "$SERVERS")" = "0" ]; then
-		uci set happ.main.selected=auto; uci commit happ
+		uci set vless.main.selected=auto; uci commit vless
 	fi
 	if [ "$(jq 'length' "$SERVERS")" = "0" ] && is_running; then
-		/etc/init.d/happ stop >/dev/null 2>&1
+		/etc/init.d/vless stop >/dev/null 2>&1
 	else
 		restart_if_running
 	fi
@@ -481,15 +481,15 @@ cmd_remove() { # remove ID (источник или одиночный серв�
 
 cmd_clear() {
 	echo '[]' > "$SERVERS"; echo '[]' > "$SOURCES"; echo '[]' > "$HIDDEN"
-	uci set happ.main.selected=auto; uci commit happ
-	is_running && /etc/init.d/happ stop >/dev/null 2>&1
+	uci set vless.main.selected=auto; uci commit vless
+	is_running && /etc/init.d/vless stop >/dev/null 2>&1
 	jq -n -c '{ok:true}'
 }
 
 cmd_select() { # select ID|auto
 	local id="$1"
 	echo "$id" | grep -qE '^(auto|[0-9a-f]{8})$' || { json_err "Некорректный id"; return 1; }
-	uci set happ.main.selected="$id"; uci commit happ
+	uci set vless.main.selected="$id"; uci commit vless
 	if is_ready; then
 		if [ "$id" = "auto" ]; then api PUT /proxies/proxy '{"name":"auto"}' >/dev/null
 		else api PUT /proxies/proxy "{\"name\":\"s-$id\"}" >/dev/null; fi
@@ -555,7 +555,7 @@ cmd_prepare() {
 cmd_connect() {
 	local i=0
 	: > "$RUN/last_error"
-	/etc/init.d/happ restart >/dev/null 2>&1
+	/etc/init.d/vless restart >/dev/null 2>&1
 	while [ $i -lt 8 ]; do
 		is_running && break
 		[ -s "$RUN/last_error" ] && break
@@ -569,7 +569,7 @@ cmd_connect() {
 }
 
 cmd_disconnect() {
-	/etc/init.d/happ stop >/dev/null 2>&1
+	/etc/init.d/vless stop >/dev/null 2>&1
 	rm -f "$RUN/up_since" "$RUN/ip.json"
 	: > "$RUN/last_error"
 	jq -n -c '{ok:true}'
@@ -598,7 +598,7 @@ dnsmasq_dir() {
 
 net_fail() { # net_fail СООБЩЕНИЕ — запомнить причину и остановить сервис (без перезапусков procd)
 	set_error "$1"
-	( /etc/init.d/happ stop >/dev/null 2>&1 & )
+	( /etc/init.d/vless stop >/dev/null 2>&1 & )
 	exit 1
 }
 
@@ -613,8 +613,8 @@ SEL_SET="vpn4"
 # selective_lists — строки «D домен» и «C подсеть» для выбранных пресетов и своих сайтов
 selective_lists() {
 	local keys pd
-	keys="$(uci -q get happ.main.presets 2>/dev/null | tr ' ' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')"
-	pd="$(uci -q get happ.main.proxy_domains 2>/dev/null | tr ' ' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+	keys="$(uci -q get vless.main.presets 2>/dev/null | tr ' ' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+	pd="$(uci -q get vless.main.proxy_domains 2>/dev/null | tr ' ' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')"
 	jq -n -r -L "$LIB" --argjson keys "$keys" --argjson pd "$pd" '
 		include "presets";
 		def isdigits: length > 0 and (explode | all(. >= 48 and . <= 57));
@@ -631,7 +631,7 @@ selective_lists() {
 # selective_nft_conf — правила nftables для режима «выбранные»
 selective_nft_conf() {
 	local csv="" d rule
-	for d in $(uci -q get happ.main.devices 2>/dev/null); do
+	for d in $(uci -q get vless.main.devices 2>/dev/null); do
 		valid_cidr "$d" && csv="${csv:+$csv, }$d"
 	done
 		case "$(cfg mode all)" in
@@ -642,7 +642,7 @@ selective_nft_conf() {
 				else rule="ip daddr @$SEL_SET meta mark set $SEL_MARK"; fi ;;
 			*)  rule="ip daddr @$SEL_SET meta mark set $SEL_MARK" ;;
 		esac
-	echo "table inet happ {"
+	echo "table inet vless {"
 	echo "  set $SEL_SET { type ipv4_addr; flags interval, timeout; auto-merge; }"
 	echo "  chain pre { type filter hook prerouting priority -150; policy accept;"
 	[ -n "$rule" ] && echo "    $rule"
@@ -654,24 +654,24 @@ selective_nft_conf() {
 selective_up() {
 	local lines c
 	if ! dnsmasq --version 2>/dev/null | tr " " "\n" | grep -qx nftset; then
-		logger -t happ "dnsmasq собран без nftset: выборочный режим недоступен, используется обычный (установите dnsmasq-full)" 2>/dev/null
+		logger -t vless "dnsmasq собран без nftset: выборочный режим недоступен, используется обычный (установите dnsmasq-full)" 2>/dev/null
 		return 1
 	fi
 	lines="$(selective_lists)"
-	printf '%s\n' "$lines" | awk -v s="$SEL_SET" '$1=="D"{print "nftset=/" $2 "/4#inet#happ#" s}' > "$RUN/nftset.conf"
+	printf '%s\n' "$lines" | awk -v s="$SEL_SET" '$1=="D"{print "nftset=/" $2 "/4#inet#vless#" s}' > "$RUN/nftset.conf"
 	selective_nft_conf > "$RUN/nft.conf"
 	if ! nft -f "$RUN/nft.conf" 2>"$RUN/nft.err"; then
-		logger -t happ "nft: не удалось включить выборочный режим: $(head -c 200 "$RUN/nft.err" 2>/dev/null)" 2>/dev/null
-		rm -f "$RUN/nftset.conf"; nft delete table inet happ 2>/dev/null
+		logger -t vless "nft: не удалось включить выборочный режим: $(head -c 200 "$RUN/nft.err" 2>/dev/null)" 2>/dev/null
+		rm -f "$RUN/nftset.conf"; nft delete table inet vless 2>/dev/null
 		return 1
 	fi
 	c="$(printf '%s\n' "$lines" | awk '$1=="C"{s = s (s ? "," : "") $2} END{print s}')"
-	[ -n "$c" ] && nft add element inet happ "$SEL_SET" "{ $c }" 2>/dev/null
+	[ -n "$c" ] && nft add element inet vless "$SEL_SET" "{ $c }" 2>/dev/null
 	return 0
 }
 
 selective_down() {
-	nft delete table inet happ 2>/dev/null
+	nft delete table inet vless 2>/dev/null
 	rm -f "$RUN/nftset.conf" "$RUN/nft.conf"
 }
 
@@ -708,7 +708,7 @@ net_up() {
 		ip rule add fwmark $SEL_MARK lookup $TABLE pref 9100
 	fi
 
-	ifs="$(uci -q get happ.main.ifaces 2>/dev/null)"; [ -n "$ifs" ] || ifs="lan"
+	ifs="$(uci -q get vless.main.ifaces 2>/dev/null)"; [ -n "$ifs" ] || ifs="lan"
 	local subnets="" devs=""
 	for n in $ifs; do
 		st="$(ubus call "network.interface.$n" status 2>/dev/null)" || continue
@@ -733,11 +733,11 @@ net_up() {
 	if [ "$sel" = 0 ]; then
 	case "$(cfg mode all)" in
 		include)
-			for ip in $(uci -q get happ.main.devices 2>/dev/null); do
+			for ip in $(uci -q get vless.main.devices 2>/dev/null); do
 				valid_cidr "$ip" && ip rule add from "$ip" lookup $TABLE pref 9100
 			done ;;
 		exclude)
-			for ip in $(uci -q get happ.main.devices 2>/dev/null); do
+			for ip in $(uci -q get vless.main.devices 2>/dev/null); do
 				valid_cidr "$ip" && ip rule add from "$ip" lookup main pref 9050
 			done
 			for net in $subnets; do ip rule add from "$net" lookup $TABLE pref 9100; done ;;
@@ -762,8 +762,8 @@ net_up() {
 				echo "server=$DNS_LISTEN"; echo "strict-order"; if cfgb kill_switch 0; then echo "no-resolv"; fi
 			fi
 			[ -s "$RUN/nftset.conf" ] && cat "$RUN/nftset.conf"
-		} > "$d/happ.conf"
-		chmod 644 "$d/happ.conf"
+		} > "$d/vless.conf"
+		chmod 644 "$d/vless.conf"
 		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	fi
 	date +%s > "$RUN/up_since"
@@ -775,8 +775,8 @@ net_down() {
 	ip route flush table $TABLE 2>/dev/null
 	selective_down
 	d="$(dnsmasq_dir)"
-	if [ -n "$d" ] && [ -f "$d/happ.conf" ]; then
-		rm -f "$d/happ.conf"
+	if [ -n "$d" ] && [ -f "$d/vless.conf" ]; then
+		rm -f "$d/vless.conf"
 		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 	fi
 	rm -f "$RUN/up_since" "$RUN/ip.json"
@@ -884,7 +884,7 @@ cmd_devices() {
 cmd_logs() {
 	{
 		echo "== sing-box =="; tail -n 60 "$RUN/sing-box.log" 2>/dev/null
-		echo; echo "== system =="; logread -e happ 2>/dev/null | tail -n 30
+		echo; echo "== system =="; logread -e vless 2>/dev/null | tail -n 30
 	} | jq -R -s -c '{log:.}'
 }
 
@@ -901,7 +901,7 @@ cmd_selftest() {
 	echo "jq:       $(jq --version 2>&1)"
 	echo "curl:     $(command -v curl >/dev/null 2>&1 && echo ok || echo 'НЕ УСТАНОВЛЕН')"
 	echo "sing-box: $(command -v sing-box >/dev/null 2>&1 && sb_version || echo 'НЕ УСТАНОВЛЕН')  (нужно 1.12+)"
-	echo "User-Agent: $(cfg user_agent "$HAPP_UA_DEFAULT")   HWID: $(get_hwid)"
+	echo "User-Agent: $(cfg user_agent "$VLESS_UA_DEFAULT")   HWID: $(get_hwid)"
 	echo "tun:      $([ -c /dev/net/tun ] && echo ok || echo 'НЕТ /dev/net/tun (kmod-tun)')"
 	echo "parse.jq: $([ -s "$LIB/parse.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
 	echo "build.jq: $([ -s "$LIB/build.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
@@ -942,6 +942,6 @@ case "$1" in
 	settings)   settings_json ;;
 	selftest)   cmd_selftest ;;
 	*)
-		echo "Использование: happ {state|status|connect|disconnect|add <текст>|remove <id>|refresh [id]|select <id|auto>|set|check|ping|logs|clearlog|clear|selftest}" >&2
+		echo "Использование: vless {state|status|connect|disconnect|add <текст>|remove <id>|refresh [id]|select <id|auto>|set|check|ping|logs|clearlog|clear|selftest}" >&2
 		exit 1 ;;
 esac

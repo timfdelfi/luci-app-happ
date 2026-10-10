@@ -1,9 +1,9 @@
 # VPN для OpenWrt
 
-**Вставил ссылку → нажал кнопку → работает.** Красивый VPN-клиент для роутера в стиле Happ. Пункт **Службы → VPN** в LuCI.
+**Вставил ссылку → нажал кнопку → работает.** Простой VPN-клиент для роутера. Пункт **Службы → VPN** в LuCI.
 
-[![CI](https://github.com/timfdelfi/luci-app-happ/actions/workflows/ci.yml/badge.svg)](https://github.com/timfdelfi/luci-app-happ/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/timfdelfi/luci-app-happ?color=6c5ce7)](https://github.com/timfdelfi/luci-app-happ/releases)
+[![CI](https://github.com/timfdelfi/luci-vless-selective/actions/workflows/ci.yml/badge.svg)](https://github.com/timfdelfi/luci-vless-selective/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/timfdelfi/luci-vless-selective?color=6c5ce7)](https://github.com/timfdelfi/luci-vless-selective/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6c5ce7.svg)](LICENSE)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-24.10%20%7C%2025.12-6c5ce7)](https://openwrt.org)
 [![sing-box](https://img.shields.io/badge/sing--box-%E2%89%A5%201.12-6c5ce7)](https://github.com/SagerNet/sing-box)
@@ -40,7 +40,7 @@
 
 **Windows**
 
-1. Скачайте `happ-vpn.zip` из [Releases](https://github.com/timfdelfi/luci-app-happ/releases) и распакуйте.
+1. Скачайте `vless-vpn.zip` из [Releases](https://github.com/timfdelfi/luci-vless-selective/releases) и распакуйте.
 2. Дважды щёлкните `INSTALL.bat`, введите адрес роутера (обычно `192.168.1.1`) и пароль root.
 3. В веб-интерфейсе роутера: **Службы → VPN** (обновите страницу через Ctrl+F5).
 
@@ -49,11 +49,11 @@
 **Linux / macOS / вручную**
 
 ```
-scp -O happ-vpn.tar.gz root@192.168.1.1:/tmp/
-ssh root@192.168.1.1 "mkdir -p /tmp/happ-vpn && tar xzf /tmp/happ-vpn.tar.gz -C /tmp/happ-vpn && sh /tmp/happ-vpn/install.sh"
+scp -O vless-vpn.tar.gz root@192.168.1.1:/tmp/
+ssh root@192.168.1.1 "mkdir -p /tmp/vless-vpn && tar xzf /tmp/vless-vpn.tar.gz -C /tmp/vless-vpn && sh /tmp/vless-vpn/install.sh"
 ```
 
-Для OpenWrt 24.10 и старше доступен и `.ipk`: `opkg install luci-app-happ_*_all.ipk`.
+Для OpenWrt 24.10 и старше доступен и `.ipk`: `opkg install luci-vless-selective_*_all.ipk`.
 
 **Удаление:** `sh uninstall.sh` (`--purge` — вместе с серверами).
 
@@ -79,40 +79,40 @@ ssh root@192.168.1.1 "mkdir -p /tmp/happ-vpn && tar xzf /tmp/happ-vpn.tar.gz -C 
 
 Заметки:
 
-- В режиме «только выбранное» остальной трафик не заворачивается в туннель и идёт напрямую. Для этого нужен `dnsmasq-full` с поддержкой nftset (обычно стоит в OpenWrt по умолчанию). Сервис попадает в VPN, когда его адрес запрошен через роутер; `happ selftest` покажет, есть ли поддержка.
+- В режиме «только выбранное» остальной трафик не заворачивается в туннель и идёт напрямую. Для этого нужен `dnsmasq-full` с поддержкой nftset (обычно стоит в OpenWrt по умолчанию). Сервис попадает в VPN, когда его адрес запрошен через роутер; `vless selftest` покажет, есть ли поддержка.
 - Правила работают по доменам (по SNI) и, для Telegram, по подсетям. Трафик, который приложение отправляет на «голый» IP
   (например, голосовые каналы Discord), может пойти мимо VPN — добавьте нужные подсети в «Свои сайты».
-- Списки доменов лежат в `root/usr/share/happ/build.jq` (`def presets`) — их легко дополнить.
+- Списки доменов лежат в `root/usr/share/vless/build.jq` (`def presets`) — их легко дополнить.
 
 ## Если что-то не работает
 
 | Симптом | Что сделать |
 | --- | --- |
-| Не добавляется ссылка | На роутере выполните `/usr/bin/happ selftest` — покажет, чего не хватает |
+| Не добавляется ссылка | На роутере выполните `/usr/bin/vless selftest` — покажет, чего не хватает |
 | Подписка не скачивается или «Ваш клиент не поддерживается» | Подписки скачиваются как Happ на Android (`User-Agent: Happ/3.13.0` + HWID роутера). Если панель всё равно ругается, поменяйте User-Agent в «Настройки → DNS и сеть» на актуальную версию Happ |
 | Подключилось, но интернета нет | Остановите Podkop и другие VPN, смотрите вкладку **Журнал** |
 | Сервер серый в списке | Он использует XHTTP, который sing-box пока не поддерживает |
 | Пункта «VPN» нет в меню | Ctrl+F5, затем перелогиньтесь в LuCI |
 
-Не помогло — [создайте issue](https://github.com/timfdelfi/luci-app-happ/issues/new/choose) и приложите вывод `selftest`. **Не публикуйте свои ссылки и ключи.**
+Не помогло — [создайте issue](https://github.com/timfdelfi/luci-vless-selective/issues/new/choose) и приложите вывод `selftest`. **Не публикуйте свои ссылки и ключи.**
 
 ## Как это работает
 
-sing-box поднимает TUN-интерфейс `happ0`; трафик устройств из LAN направляется в него через `ip rule` (таблица 100), локальные сети идут мимо. В режиме «Только выбранные сервисы» в туннель попадает только трафик к адресам выбранных сервисов: nftables помечает его, а набор адресов заполняет dnsmasq по доменам. DNS-запросы клиентов dnsmasq отправляет в sing-box
+sing-box поднимает TUN-интерфейс `vless0`; трафик устройств из LAN направляется в него через `ip rule` (таблица 100), локальные сети идут мимо. В режиме «Только выбранные сервисы» в туннель попадает только трафик к адресам выбранных сервисов: nftables помечает его, а набор адресов заполняет dnsmasq по доменам. DNS-запросы клиентов dnsmasq отправляет в sing-box
 (127.0.0.77), и они уходят через VPN по DNS-over-TLS.
 
 | Файл | Назначение |
 | --- | --- |
-| `htdocs/…/view/happ/main.js` | интерфейс (LuCI JS-view) |
-| `root/usr/bin/happ` | бэкенд: подписки, конфиг, маршрутизация, DNS |
-| `root/usr/share/happ/parse.jq` | разбор ссылок и подписок (без регулярок — работает на любом jq) |
-| `root/usr/share/happ/build.jq` | сборка конфига sing-box |
-| `root/etc/init.d/happ` | запуск через procd |
-| `root/usr/libexec/rpcd/happ` | мост интерфейс ↔ бэкенд |
+| `htdocs/…/view/vless/main.js` | интерфейс (LuCI JS-view) |
+| `root/usr/bin/vless` | бэкенд: подписки, конфиг, маршрутизация, DNS |
+| `root/usr/share/vless/parse.jq` | разбор ссылок и подписок (без регулярок — работает на любом jq) |
+| `root/usr/share/vless/build.jq` | сборка конфига sing-box |
+| `root/etc/init.d/vless` | запуск через procd |
+| `root/usr/libexec/rpcd/vless` | мост интерфейс ↔ бэкенд |
 
 ## Ограничения
 
-- Роутер занимает один слот в лимите устройств вашей подписки (HWID виден в «Настройки → DNS и сеть» и в `happ selftest`).
+- Роутер занимает один слот в лимите устройств вашей подписки (HWID виден в «Настройки → DNS и сеть» и в `vless selftest`).
 - XHTTP (транспорт Xray) sing-box не поддерживает.
 - Не запускайте одновременно с Podkop или другим VPN, который управляет маршрутизацией LAN.
 - Внутри туннеля только IPv4; IPv6 клиентов блокируется во всех режимах (можно отключить).
@@ -124,10 +124,10 @@ sing-box поднимает TUN-интерфейс `happ0`; трафик уст�
 
 ```
 sh tests/run.sh   # разбор ссылок, сборка конфига, sing-box check
-sh build.sh       # dist/: happ-vpn.tar.gz и .ipk
+sh build.sh       # dist/: vless-vpn.tar.gz и .ipk
 ```
 
-Релиз: `git tag v1.1.0 && git push --tags` — GitHub Actions прогонит тесты, соберёт и прикрепит к релизу `happ-vpn.zip` (Windows), `happ-vpn.tar.gz` и `.ipk`. Версия пакета задаётся в `VERSION`; перед выпуском обновите её и поставьте соответствующий тег `v<версия>` (без номера сборки после дефиса).
+Релиз: `git tag v1.1.0 && git push --tags` — GitHub Actions прогонит тесты, соберёт и прикрепит к релизу `vless-vpn.zip` (Windows), `vless-vpn.tar.gz` и `.ipk`. Версия пакета задаётся в `VERSION`; перед выпуском обновите её и поставьте соответствующий тег `v<версия>` (без номера сборки после дефиса).
 
 Файлы в репозитории должны быть с переводами строк LF (иначе `#!/bin/sh` на роутере не запустится) — это
 гарантирует `.gitattributes`; CI проверяет, что CRLF нигде нет (кроме `INSTALL.bat`).

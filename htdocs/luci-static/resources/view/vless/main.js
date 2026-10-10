@@ -6,7 +6,7 @@
 /* ───────────────────────── RPC ───────────────────────── */
 
 var H = function (method, params) {
-	return rpc.declare({ object: 'happ', method: method, params: params || [] });
+	return rpc.declare({ object: 'vless', method: method, params: params || [] });
 };
 var rState      = H('state');
 var rStatus     = H('status');
@@ -391,7 +391,7 @@ function plural(n, one, few, many) {
 	return many;
 }
 
-/* ключи совпадают с PRESET_KEYS в /usr/bin/happ и presets в build.jq */
+/* ключи совпадают с PRESET_KEYS в /usr/bin/vless и presets в build.jq */
 var PRESETS = [
 	['telegram', 'Telegram', 'Домены и подсети Telegram'],
 	['youtube', 'YouTube', ''],

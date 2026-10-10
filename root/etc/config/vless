@@ -1,4 +1,4 @@
-config happ 'main'
+config vless 'main'
 	option scope 'all'
 	option mode 'all'
 	option dns_mode 'vpn'

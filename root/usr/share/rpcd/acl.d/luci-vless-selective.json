@@ -1,0 +1,11 @@
+{
+	"luci-vless-selective": {
+		"description": "Доступ к приложению VPN",
+		"read": {
+			"ubus": { "vless": [ "state", "status", "devices", "logs" ] }
+		},
+		"write": {
+			"ubus": { "vless": [ "add", "remove", "refresh", "select", "set", "connect", "disconnect", "check", "ping", "clear", "clearlog" ] }
+		}
+	}
+}

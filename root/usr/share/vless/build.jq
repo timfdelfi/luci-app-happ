@@ -1,7 +1,7 @@
 # build.jq — собирает конфиг sing-box (>= 1.12) из списка серверов и настроек.
 #
 #   jq -n -f build.jq --slurpfile servers servers.json --argjson s '{...}' \
-#      --arg secret XXX --arg selected auto --arg logfile /var/run/happ/sing-box.log
+#      --arg secret XXX --arg selected auto --arg logfile /var/run/vless/sing-box.log
 #
 # Параметры настроек ($s): remote_dns, bootstrap_dns, block_quic, bypass_ru,
 # direct_domains[], tun_stack, mtu, log_level, api_port, mixed_port, dns_listen, tun_name,
@@ -73,7 +73,7 @@ def is_domainlike: is_ip | not;
     },
 
     inbounds: [
-      { type: "tun", tag: "tun-in", interface_name: ($s.tun_name // "happ0"),
+      { type: "tun", tag: "tun-in", interface_name: ($s.tun_name // "vless0"),
         address: ["172.19.0.1/30"], mtu: ($s.mtu // 1400),
         auto_route: false, stack: ($s.tun_stack // "system") },
       { type: "direct", tag: "dns-in", listen: ($s.dns_listen // "127.0.0.77"), listen_port: 53 },

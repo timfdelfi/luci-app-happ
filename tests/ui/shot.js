@@ -3,7 +3,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path');
 const root = path.join(__dirname, '..', '..');
-const src = fs.readFileSync(path.join(root, 'htdocs/luci-static/resources/view/happ/main.js'), 'utf8');
+const src = fs.readFileSync(path.join(root, 'htdocs/luci-static/resources/view/vless/main.js'), 'utf8');
 const mock = require('./mock.js');
 const out = process.argv[2] || path.join(__dirname, 'out');
 fs.mkdirSync(out, { recursive: true });
@@ -85,7 +85,7 @@ const text = (page) => page.evaluate(() => document.body.innerText);
   await page.screenshot({ path: out + '/error.png' });
   await page.context().close();
   ({ page } = await open(browser, 'error'));
-  ok(/Интерфейс happ0 не появился/.test(await text(page)), 'ошибка из статуса показана');
+  ok(/Интерфейс vless0 не появился/.test(await text(page)), 'ошибка из статуса показана');
   await page.context().close();
 
   console.log('== пустой экран');

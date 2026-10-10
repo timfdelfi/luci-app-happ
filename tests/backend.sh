@@ -1,5 +1,5 @@
 #!/bin/sh
-# Тесты бэкенда (/usr/bin/happ) на заглушках: без роутера, sing-box и сети.
+# Тесты бэкенда (/usr/bin/vless) на заглушках: без роутера, sing-box и сети.
 #   sh tests/backend.sh
 cd "$(dirname "$0")/.." || exit 1
 ROOT="$PWD"
@@ -8,10 +8,10 @@ ok()  { printf '  ok   %s\n' "$1"; }
 bad() { printf '  FAIL %s\n' "$1"; fail=1; }
 
 W="$(mktemp -d)"
-export HAPP_DIR="$W/etc" HAPP_RUN="$W/run" HAPP_LIB="$ROOT/root/usr/share/happ" HAPP_PID="$W/happ.pid"
-export HAPP_CRON="$W/crontab" UCI_DB="$W/uci.db" NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
+export VLESS_DIR="$W/etc" VLESS_RUN="$W/run" VLESS_LIB="$ROOT/root/usr/share/vless" VLESS_PID="$W/vless.pid"
+export VLESS_CRON="$W/crontab" UCI_DB="$W/uci.db" NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
 export PATH="$ROOT/tests/mock:$PATH"
-H="sh $ROOT/root/usr/bin/happ"
+H="sh $ROOT/root/usr/bin/vless"
 j() { printf '%s' "$1" | jq -e "$2" >/dev/null 2>&1; }
 t() { j "$2" "$3" && ok "$1" || { bad "$1"; printf '       получено: %s\n' "$(printf '%s' "$2" | cut -c1-300)"; }; }
 
@@ -36,9 +36,9 @@ r="$($H settings)"
 t "set: валидное сохранено, мусор — нет" "$r" '.kill_switch==true and .mtu==1400 and .remote_dns=="1.1.1.1" and .direct_domains==["example.org"] and .devices==["192.168.1.50"] and .presets==["telegram"] and .mode=="include"'
 r="$(printf '%s' '{"mtu":1500,"update_interval":6}' | $H set)"
 t "set: числа принимаются" "$r" '.ok==true and (.ignored|length)==0'
-grep -q '^17 \*/6 \* \* \* /usr/bin/happ update-all' "$HAPP_CRON" && ok "cron: запись «каждые 6 часов»" || bad "cron: запись «каждые 6 часов»"
+grep -q '^17 \*/6 \* \* \* /usr/bin/vless update-all' "$VLESS_CRON" && ok "cron: запись «каждые 6 часов»" || bad "cron: запись «каждые 6 часов»"
 printf '%s' '{"update_interval":0}' | $H set >/dev/null
-grep -q update-all "$HAPP_CRON" && bad "cron: запись удалена при «выключено»" || ok "cron: запись удалена при «выключено»"
+grep -q update-all "$VLESS_CRON" && bad "cron: запись удалена при «выключено»" || ok "cron: запись удалена при «выключено»"
 r="$(printf 'не json' | $H set)"
 t "set: некорректный JSON" "$r" '.ok==false'
 
@@ -69,8 +69,8 @@ r="$($H refresh "$sid")"
 t "refresh: ok" "$r" '.ok==true and .updated==1 and .failed==0'
 r="$($H state)"
 t "refresh: удалённый пользователем сервер не вернулся" "$r" "([.servers[]|select(.source==\"$sid\")]|length)==6"
-r="$($H add 'happ://add/http://127.0.0.1:18765/sub')"
-t "add: ссылка-обёртка happ://add/… распознана" "$r" '.ok==true and .kind=="sub"'
+r="$($H add 'vless://add/http://127.0.0.1:18765/sub')"
+t "add: ссылка-обёртка vless://add/… распознана" "$r" '.ok==true and .kind=="sub"'
 $H remove "$sid" >/dev/null
 r="$($H state)"
 t "remove: подписка удаляется вместе с серверами" "$r" '([.sources[]|select(.kind=="sub")]|length)==0 and (.servers|length)==6'
@@ -90,11 +90,11 @@ t "clear: всё очищено" "$r" '.ok==true'
 t "clear: пусто" "$($H state)" '(.servers|length)==0 and (.sources|length)==0'
 
 echo "== rpcd-плагин"
-RP="sh $ROOT/root/usr/libexec/rpcd/happ"
+RP="sh $ROOT/root/usr/libexec/rpcd/vless"
 $RP list | jq -e 'has("connect") and has("set") and has("ping")' >/dev/null && ok "list: валидный JSON с методами" || bad "list"
-r="$(echo '{}' | HAPP_BIN="$ROOT/root/usr/bin/happ" $RP call status)"
+r="$(echo '{}' | VLESS_BIN="$ROOT/root/usr/bin/vless" $RP call status)"
 t "call status: проксируется" "$r" 'has("running")'
-r="$(echo '{}' | HAPP_BIN=/nonexistent $RP call state)"
+r="$(echo '{}' | VLESS_BIN=/nonexistent $RP call state)"
 t "call при сломанном бэкенде: JSON-ошибка, не пустой ответ" "$r" '.ok==false and (.error|length)>5'
 r="$(echo '{}' | $RP call nope)"
 t "call: неизвестный метод" "$r" '.ok==false'

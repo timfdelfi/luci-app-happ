@@ -1,0 +1,2 @@
+iifname "vless0" accept comment "VPN (vless): из туннеля"
+oifname "vless0" accept comment "VPN (vless): в туннель"

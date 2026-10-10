@@ -2,7 +2,7 @@
 chcp 65001 >nul
 title Установка VPN на роутер OpenWrt
 echo.
-echo  Установка VPN (luci-app-happ) на роутер OpenWrt
+echo  Установка VPN (luci-vless-selective) на роутер OpenWrt
 echo  ------------------------------------------------
 set "IP="
 set /p IP=Адрес роутера [Enter = 192.168.1.1]: 
@@ -10,13 +10,13 @@ if "%IP%"=="" set "IP=192.168.1.1"
 echo.
 echo  Дальше роутер дважды спросит пароль root (при вводе символы не видны - это нормально).
 echo.
-tar -czf "%TEMP%\happ-vpn.tar.gz" -C "%~dp0." .
+tar -czf "%TEMP%\vless-vpn.tar.gz" -C "%~dp0." .
 if errorlevel 1 goto fail
-scp -O -o StrictHostKeyChecking=accept-new "%TEMP%\happ-vpn.tar.gz" root@%IP%:/tmp/happ-vpn.tar.gz
+scp -O -o StrictHostKeyChecking=accept-new "%TEMP%\vless-vpn.tar.gz" root@%IP%:/tmp/vless-vpn.tar.gz
 if errorlevel 1 goto fail
-ssh root@%IP% "rm -rf /tmp/happ-vpn && mkdir -p /tmp/happ-vpn && tar xzf /tmp/happ-vpn.tar.gz -C /tmp/happ-vpn && find /tmp/happ-vpn -type f -exec sed -i 's/\r$//' {} + && sh /tmp/happ-vpn/install.sh"
+ssh root@%IP% "rm -rf /tmp/vless-vpn && mkdir -p /tmp/vless-vpn && tar xzf /tmp/vless-vpn.tar.gz -C /tmp/vless-vpn && find /tmp/vless-vpn -type f -exec sed -i 's/\r$//' {} + && sh /tmp/vless-vpn/install.sh"
 if errorlevel 1 goto fail
-del "%TEMP%\happ-vpn.tar.gz" >nul 2>&1
+del "%TEMP%\vless-vpn.tar.gz" >nul 2>&1
 echo.
 echo  Готово! Откройте веб-интерфейс роутера: Службы - VPN
 pause
