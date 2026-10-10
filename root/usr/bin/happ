@@ -634,9 +634,6 @@ selective_nft_conf() {
 	for d in $(uci -q get happ.main.devices 2>/dev/null); do
 		valid_cidr "$d" && csv="${csv:+$csv, }$d"
 	done
-	if [ "$(cfg scope all)" = selected ] && selective_up; then
-		ip rule add fwmark $SEL_MARK lookup $TABLE pref 9100
-	else
 		case "$(cfg mode all)" in
 			include)
 				if [ -n "$csv" ]; then rule="ip saddr { $csv } ip daddr @$SEL_SET meta mark set $SEL_MARK"; else rule=""; fi ;;
@@ -645,9 +642,8 @@ selective_nft_conf() {
 				else rule="ip daddr @$SEL_SET meta mark set $SEL_MARK"; fi ;;
 			*)  rule="ip daddr @$SEL_SET meta mark set $SEL_MARK" ;;
 		esac
-	fi
 	echo "table inet happ {"
-	echo "  set $SEL_SET { type ipv4_addr; flags interval, timeout; }"
+	echo "  set $SEL_SET { type ipv4_addr; flags interval, timeout; auto-merge; }"
 	echo "  chain pre { type filter hook prerouting priority -150; policy accept;"
 	[ -n "$rule" ] && echo "    $rule"
 	echo "  }"
@@ -657,7 +653,7 @@ selective_nft_conf() {
 # selective_up — включить выборочный режим; при неудаче возвращает 1 (тогда работает обычный режим)
 selective_up() {
 	local lines c
-	if ! dnsmasq --version 2>/dev/null | grep -q nftset; then
+	if ! dnsmasq --version 2>/dev/null | tr " " "\n" | grep -qx nftset; then
 		logger -t happ "dnsmasq собран без nftset: выборочный режим недоступен, используется обычный (установите dnsmasq-full)" 2>/dev/null
 		return 1
 	fi
@@ -669,7 +665,7 @@ selective_up() {
 		rm -f "$RUN/nftset.conf"; nft delete table inet happ 2>/dev/null
 		return 1
 	fi
-	c="$(printf '%s\n' "$lines" | awk '$1=="C"{print $2}' | paste -sd, -)"
+	c="$(printf '%s\n' "$lines" | awk '$1=="C"{s = s (s ? "," : "") $2} END{print s}')"
 	[ -n "$c" ] && nft add element inet happ "$SEL_SET" "{ $c }" 2>/dev/null
 	return 0
 }
@@ -705,6 +701,13 @@ net_up() {
 		ip rule add to "$net" lookup main pref $p; p=$((p + 1))
 	done
 
+	# выборочный режим: метим только пакеты к адресам набора vpn4; при неудаче — обычный режим
+	local sel=0
+	if [ "$(cfg scope all)" = selected ] && selective_up; then
+		sel=1
+		ip rule add fwmark $SEL_MARK lookup $TABLE pref 9100
+	fi
+
 	ifs="$(uci -q get happ.main.ifaces 2>/dev/null)"; [ -n "$ifs" ] || ifs="lan"
 	local subnets="" devs=""
 	for n in $ifs; do
@@ -727,6 +730,7 @@ net_up() {
 		done < "$RUN/vpn_targets"
 	fi
 
+	if [ "$sel" = 0 ]; then
 	case "$(cfg mode all)" in
 		include)
 			for ip in $(uci -q get happ.main.devices 2>/dev/null); do
@@ -740,6 +744,7 @@ net_up() {
 		*)
 			for net in $subnets; do ip rule add from "$net" lookup $TABLE pref 9100; done ;;
 	esac
+	fi
 
 	# IPv6 в туннель не отправляем — закрываем во всех режимах, иначе он утечёт мимо VPN
 	if cfgb block_ipv6 1; then
@@ -900,7 +905,7 @@ cmd_selftest() {
 	echo "tun:      $([ -c /dev/net/tun ] && echo ok || echo 'НЕТ /dev/net/tun (kmod-tun)')"
 	echo "parse.jq: $([ -s "$LIB/parse.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
 	echo "build.jq: $([ -s "$LIB/build.jq" ] && echo ok || echo 'ФАЙЛ НЕ НАЙДЕН — переустановите')"
-	echo "dnsmasq nftset (для «Только выбранные»): $(dnsmasq --version 2>/dev/null | grep -q nftset && echo ok || echo 'НЕТ — установите dnsmasq-full')"
+	echo "dnsmasq nftset (для «Только выбранные»): $(dnsmasq --version 2>/dev/null | tr " " "\n" | grep -qx nftset && echo ok || echo 'НЕТ — установите dnsmasq-full')"
 	n="$(printf '%s\n' "$t" | jq -R -n -r --arg mode links -f "$LIB/parse.jq" 2>&1 | head -c 120)"
 	case "$n" in
 		*server_port*) echo "разбор тестовой ссылки: ok" ;;
