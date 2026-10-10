@@ -3,7 +3,8 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=luci-vless-selective
 PKG_VERSION:=$(shell sed 's/-[^-]*$$//' $(CURDIR)/VERSION)
 PKG_RELEASE:=$(shell sed 's/^.*-//' $(CURDIR)/VERSION)
-PKG_MAINTAINER:=OpenWrt User
+# Контакт виден в `opkg info luci-vless-selective`
+PKG_MAINTAINER:=timfdelfi <https://github.com/timfdelfi/luci-vless-selective/issues>
 PKG_LICENSE:=MIT
 
 LUCI_TITLE:=VPN для OpenWrt: вставил ссылку, нажал кнопку, работает

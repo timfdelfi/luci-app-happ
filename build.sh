@@ -17,11 +17,12 @@ trap 'rm -rf "$W"' EXIT
 mkdir -p "$OUT"
 rm -f "$OUT/vless-vpn.tar.gz" "$OUT/vless-vpn.zip" "$OUT/luci-vless-selective_${VER}_all.ipk"
 
-chmod 0755 root/usr/bin/vless root/usr/libexec/rpcd/vless root/etc/init.d/vless root/etc/uci-defaults/90-vless install.sh uninstall.sh
-
 # 1) универсальный установщик (opkg и apk)
 mkdir -p "$W/vless-vpn"
 cp -a root htdocs install.sh uninstall.sh INSTALL.bat "$W/vless-vpn/"
+chmod 0755 "$W/vless-vpn/root/usr/bin/vless" "$W/vless-vpn/root/usr/libexec/rpcd/vless" \
+	"$W/vless-vpn/root/etc/init.d/vless" "$W/vless-vpn/root/etc/uci-defaults/90-vless" \
+	"$W/vless-vpn/install.sh" "$W/vless-vpn/uninstall.sh"
 find "$W/vless-vpn" -type f ! -name INSTALL.bat -exec sed -i 's/\r$//' {} +
 tar --owner=0 --group=0 --numeric-owner -C "$W" -czf "$OUT/vless-vpn.tar.gz" vless-vpn
 # zip для Windows: распаковать и запустить INSTALL.bat
@@ -30,6 +31,8 @@ if command -v zip >/dev/null 2>&1; then ( cd "$W" && zip -qr "$OUT/vless-vpn.zip
 # 2) .ipk для opkg (OpenWrt 24.10 и старше)
 mkdir -p "$W/data/www" "$W/ctl"
 cp -a root/. "$W/data/"
+chmod 0755 "$W/data/usr/bin/vless" "$W/data/usr/libexec/rpcd/vless" \
+	"$W/data/etc/init.d/vless" "$W/data/etc/uci-defaults/90-vless"
 cp -a htdocs/. "$W/data/www/"
 find "$W/data" "$W/ctl" -type f -exec sed -i 's/\r$//' {} +
 cat > "$W/ctl/control" <<C
@@ -38,7 +41,7 @@ Version: $VER
 Depends: luci-base, rpcd, sing-box, kmod-tun, curl, jq, ca-bundle, ip-full
 Section: luci
 Architecture: all
-Maintainer: OpenWrt User
+Maintainer: $(sed -n 's/^PKG_MAINTAINER:=//p' Makefile)
 Description: VPN для OpenWrt: вставил ссылку, нажал кнопку, работает
 C
 echo /etc/config/vless > "$W/ctl/conffiles"

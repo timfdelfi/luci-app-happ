@@ -19,11 +19,29 @@ var rSelect     = H('select', ['id']);
 var rSet        = H('set', ['settings']);
 var rCheck      = H('check');
 var rPing       = H('ping');
+var rPingDirect = H('ping-direct');
 var rPingOne    = H('ping', ['id']);
+var rPingOneDirect = H('ping-direct', ['id']);
 var rDevices    = H('devices');
 var rLogs       = H('logs');
 var rClear      = H('clear');
 var rClearLog   = H('clearlog');
+
+/* Ретраи для сетевых запросов с экспоненциальной задержкой */
+var MAX_RETRIES = 3;
+var RETRY_DELAY = 1000;
+
+function withRetry(fn, retries) {
+	retries = retries || 0;
+	return fn().catch(function (err) {
+		if (retries < MAX_RETRIES) {
+			return new Promise(function (resolve) {
+				setTimeout(function () { resolve(withRetry(fn, retries + 1)); }, RETRY_DELAY * Math.pow(2, retries));
+			});
+		}
+		throw err;
+	});
+}
 
 var CONNECT_TIMEOUT = 45000;   /* сколько ждём подъёма туннеля, мс */
 
@@ -951,7 +969,7 @@ return view.extend({
 			self.addBtn.disabled = false;
 			self.addBtn.classList.remove('spin');
 		};
-		rAdd(text).then(function (r) {
+		withRetry(function () { return rAdd(text); }).then(function (r) {
 			done();
 			if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось добавить', true); return; }
 			ta.value = '';
@@ -971,7 +989,7 @@ return view.extend({
 	doSelect: function (id) {
 		var self = this;
 		if (((this.S.settings || {}).selected || 'auto') === id) return;
-		rSelect(id).then(function (r) {
+		withRetry(function () { return rSelect(id); }).then(function (r) {
 			if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось выбрать', true); return; }
 			if (self.S.settings) self.S.settings.selected = id;
 			self.drawList();
@@ -987,7 +1005,7 @@ return view.extend({
 	doRemove: function (id, name, what) {
 		var self = this;
 		this.confirmDlg('Удалить ' + (what || 'сервер') + '?', '«' + (name || id) + '» будет удалён' + (what === 'подписку' ? ' вместе со всеми серверами из неё.' : '.'), 'Удалить', true, function () {
-			rRemove(id).then(function (r) {
+			withRetry(function () { return rRemove(id); }).then(function (r) {
 				if (!r || !r.ok) { self.toast((r && r.error) || 'Не удалось удалить', true); return; }
 				self.toast('Удалено');
 				self.refreshAll();
@@ -999,7 +1017,7 @@ return view.extend({
 		var self = this;
 		if (btn) { btn.classList.add('spin'); btn.disabled = true; }
 		var done = function () { if (btn) { btn.classList.remove('spin'); btn.disabled = false; } };
-		rRefresh(id || 'all').then(function (r) {
+		withRetry(function () { return rRefresh(id || 'all'); }).then(function (r) {
 			done();
 			if (!r || !r.ok) {
 				self.toast((r && r.error) || 'Не удалось обновить', true);
@@ -1015,7 +1033,7 @@ return view.extend({
 		var self = this;
 		if (this._checking) return;
 		this._checking = true;
-		rCheck().then(function (r) {
+		withRetry(rCheck).then(function (r) {
 			self._checking = false;
 			if (r && r.ok) self.check = r;
 			self.updatePower();
@@ -1046,12 +1064,14 @@ return view.extend({
 			self._pinging = false;
 			if (btn) { btn.disabled = false; btn.classList.remove('spin'); btn.lastChild.textContent = 'Пинг всех'; }
 		};
-		rPing().then(function (r) {
+		/* Если VPN не подключён — прямой пинг, иначе через VPN (точнее) */
+		var pingFn = (this.phase() === 'on') ? rPing : rPingDirect;
+		withRetry(pingFn).then(function (r) {
 			done();
 			if (r && r.delays) self.S.delays = r.delays;
 			if (manual) {
 				if (!r || !r.ok) self.toast((r && r.error) || 'Не удалось измерить пинг', true);
-				else self.toast('Пинг обновлён');
+				else self.toast(r.direct ? 'Пинг обновлён (прямой)' : 'Пинг обновлён');
 			}
 			self.drawList();
 			self.updatePower();
@@ -1063,11 +1083,12 @@ return view.extend({
 		if (!id) { this.toast('Сначала выберите сервер или подключитесь', true); return; }
 		if (btn) { btn.classList.add('spin'); btn.disabled = true; }
 		var done = function () { if (btn) { btn.classList.remove('spin'); btn.disabled = false; } };
-		rPingOne(id).then(function (r) {
+		var pingFn = (this.phase() === 'on') ? function () { return rPingOne(id); } : function () { return rPingOneDirect(id); };
+		withRetry(pingFn).then(function (r) {
 			done();
 			if (r && r.delays) self.S.delays = r.delays;
 			if (!r || !r.ok) self.toast((r && r.error) || 'Сервер не ответил', true);
-			else self.toast('Пинг: ' + r.ms + ' мс');
+			else self.toast('Пинг: ' + r.ms + ' мс' + (r.direct ? ' (прямой)' : ''));
 			self.drawList();
 			self.updatePower();
 		}).catch(function () { done(); self.toast('Не удалось измерить пинг', true); });
@@ -1105,7 +1126,7 @@ return view.extend({
 		var self = this;
 		if (this._polling) return;
 		this._polling = true;
-		rStatus().then(function (r) {
+		withRetry(rStatus).then(function (r) {
 			self._polling = false;
 			if (r && typeof r === 'object') self.applyStatus(r);
 		}).catch(function () { self._polling = false; });
@@ -1113,7 +1134,7 @@ return view.extend({
 
 	refreshAll: function () {
 		var self = this;
-		rState().then(function (st) {
+		withRetry(rState).then(function (st) {
 			if (!st) return;
 			self.loadFailed = false;
 			self.S = st;
@@ -1419,7 +1440,7 @@ return view.extend({
 			auto_test_url: testUrl
 		};
 		btn.disabled = true;
-		rSet(settings).then(function (r) {
+		withRetry(function () { return rSet(settings); }).then(function (r) {
 			if (!r || !r.ok) { btn.disabled = false; self.toast((r && r.error) || 'Не удалось сохранить', true); return; }
 			var running = self.S.status && (self.S.status.running || self.S.status.connected);
 			Object.assign(self.S.settings, settings);

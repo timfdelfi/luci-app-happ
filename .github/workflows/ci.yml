@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Прогнать тесты
+        run: sh tests/run.sh
+
+  package:
+    name: Сборка пакетов
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить зависимости сборки
+        run: sudo apt-get update && sudo apt-get install -y jq binutils zip
+
+      - name: Проверить переводы строк (LF)
+        run: sh ci/check-lf.sh
+
+      - name: Собрать
+        run: sh build.sh
+
+      - name: Проверить, что .ipk — ar-архив с debian-binary
+        run: |
+          IPK="dist/luci-vless-selective_$(cat VERSION)_all.ipk"
+          ar t "$IPK" | grep -q debian-binary || { echo "НЕ ar-архив"; exit 1; }
+          echo "ok: $(ar t "$IPK" | tr '\n' ' ')"
+
+      - name: Проверить, что файлы собраны (dist)
+        run: ls -l dist/

@@ -38,6 +38,8 @@ VLESS_DEVICE_MODEL="Pixel 8"
 
 cfg()  { local v; v="$(uci -q get vless.main."$1" 2>/dev/null)"; [ -n "$v" ] && echo "$v" || echo "$2"; }
 cfgb() { [ "$(cfg "$1" "$2")" = "1" ]; }
+# Kill Switch включён, если в UCI kill_switch=1 (по умолчанию выключен)
+kill_switch_on() { cfgb kill_switch 0; }
 
 json_err() { jq -n -c --arg e "$1" '{ok:false,error:$e}'; }
 
@@ -575,8 +577,18 @@ cmd_disconnect() {
 	jq -n -c '{ok:true}'
 }
 
+rotate_log() { # если лог больше 5 МБ — обрезаем, оставляя последние 200 строк
+	local f="$RUN/sing-box.log"
+	[ -f "$f" ] || return 0
+	local size
+	size="$(wc -c < "$f" 2>/dev/null || echo 0)"
+	[ "$size" -gt 5242880 ] 2>/dev/null || return 0
+	tail -n 200 "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
+}
+
 cmd_run() {
 	rm -f "$RUN/up_since" "$RUN/ip.json"
+	rotate_log
 	( net_up ) >/dev/null 2>&1 &
 	exec sing-box run -D "$RUN" -c "$CONFIG"
 }
@@ -693,7 +705,7 @@ net_up() {
 	# ответы приходят из туннеля с чужими адресами — строгий rp_filter их бы отбросил
 	sysctl -qw "net.ipv4.conf.$TUN.rp_filter=2" 2>/dev/null
 	ip route replace default dev "$TUN" table $TABLE metric 100 || net_fail "Не удалось создать маршрут через $TUN (пакет ip-full установлен?)"
-	cfgb kill_switch 0 && ip route replace blackhole default table $TABLE metric 4096
+	kill_switch_on && ip route replace blackhole default table $TABLE metric 4096
 
 	# локальные и служебные сети всегда идут мимо туннеля
 	p=9000
@@ -759,7 +771,7 @@ net_up() {
 	if [ -n "$d" ]; then
 		{
 			if [ "$(cfg dns_mode vpn)" = "vpn" ]; then
-				echo "server=$DNS_LISTEN"; echo "strict-order"; if cfgb kill_switch 0; then echo "no-resolv"; fi
+				echo "server=$DNS_LISTEN"; echo "strict-order"; if kill_switch_on; then echo "no-resolv"; fi
 			fi
 			[ -s "$RUN/nftset.conf" ] && cat "$RUN/nftset.conf"
 		} > "$d/vless.conf"
@@ -785,13 +797,15 @@ net_down() {
 # ---------------------------------------------------------------- диагностика
 
 ip_lookup() { # через локальный proxy sing-box
-	local u r
+	local u r why=""
 	for u in "https://ipwho.is/" "https://api.ip.sb/geoip" "https://api.myip.com"; do
-		r="$(curl -s -m 7 -x "socks5h://127.0.0.1:$MIXED_PORT" "$u" 2>/dev/null)" || continue
-		printf '%s\n' "$r" | jq -e '.ip' >/dev/null 2>&1 || continue
+		r="$(curl -s -m 7 -x "socks5h://127.0.0.1:$MIXED_PORT" "$u" 2>/dev/null)" || { why="$why ${u#https://}:недоступен"; continue; }
+		printf '%s\n' "$r" | jq -e '.ip' >/dev/null 2>&1 || { why="$why ${u#https://}:нет поля ip"; continue; }
+		[ -n "$why" ] && logger -t vless "ip: ответил ${u#https://} ($why)" 2>/dev/null
 		printf '%s\n' "$r" | jq -c '{ip:.ip, country:(.country // ""), code:((.country_code // .cc // "")|ascii_uppercase)}'
 		return 0
 	done
+	logger -t vless "ip: не удалось определить адрес ($why)" 2>/dev/null
 	return 1
 }
 
@@ -809,9 +823,9 @@ cmd_check() {
 	jq -n -c --argjson d "$d" --argjson ip "${ipj:-null}" '{ok:true,delay:$d,ip:$ip}'
 }
 
-cmd_ping() { # ping [ID] — без ID меряет все серверы, с ID — только один
+cmd_ping() { # ping [ID] — без ID меряет все серверы, с ID — только один (через VPN, точнее)
 	local r id="$1" d
-	is_ready || { jq -n -c '{ok:false,error:"Сначала подключитесь — пинг измеряется через VPN"}'; return 0; }
+	is_ready || { jq -n -c '{ok:false,error:"VPN не подключён — используйте кнопку «Пинг всех» для прямого измерения"}'; return 0; }
 	[ -s "$RUN/delays.json" ] || echo '{}' > "$RUN/delays.json"
 	if [ -n "$id" ]; then
 		echo "$id" | grep -qE '^[0-9a-f]{8}$' || { json_err "Некорректный id"; return 0; }
@@ -832,6 +846,65 @@ cmd_ping() { # ping [ID] — без ID меряет все серверы, с ID
 	jq -n -c --slurpfile d "$RUN/delays.json" '{ok:true,delays:$d[0]}'
 }
 
+# ping_direct [ID] — прямой пинг до сервера без VPN (curl, TCP connect + TLS handshake)
+# Меряет время установления соединения до server:port — хороший прокси для «как далеко сервер».
+ping_one_direct() { # ping_one_direct HOST PORT -> мс или ""
+	local host="$1" port="$2" t url
+	case "$port" in
+		80) url="http://$host" ;;
+		*)  url="https://$host:$port" ;;
+	esac
+	t="$(curl -so /dev/null -m 6 -w '%{time_connect}' "$url" 2>/dev/null || echo "")"
+	if [ -n "$t" ] && printf '%s' "$t" | grep -qE '^[0-9]+\.[0-9]+$'; then
+		awk -v t="$t" 'BEGIN{printf "%d", t*1000}'
+	fi
+}
+
+cmd_ping_direct() { # ping_direct [ID] — прямой пинг без VPN
+	local id="$1" d
+	[ -s "$RUN/delays.json" ] || echo '{}' > "$RUN/delays.json"
+	if [ -n "$id" ]; then
+		echo "$id" | grep -qE '^[0-9a-f]{8}$' || { json_err "Некорректный id"; return 0; }
+		d="$(jq -r --arg id "$id" '.[]|select(.id==$id)|[.server,(.port|tostring)]|@tsv' "$SERVERS" 2>/dev/null)"
+		[ -n "$d" ] || { json_err "Сервер не найден"; return 0; }
+		local host port ms
+		host="$(printf '%s' "$d" | cut -f1)"
+		port="$(printf '%s' "$d" | cut -f2)"
+		ms="$(ping_one_direct "$host" "$port")"
+		if [ -n "$ms" ]; then
+			jq -c --arg id "$id" --argjson d "$ms" '. + {($id):$d}' "$RUN/delays.json" > "$RUN/delays.tmp" && mv "$RUN/delays.tmp" "$RUN/delays.json"
+			jq -n -c --slurpfile all "$RUN/delays.json" --argjson d "$ms" '{ok:true,ms:$d,delays:$all[0],direct:true}'
+		else
+			jq -c --arg id "$id" 'del(.[$id])' "$RUN/delays.json" > "$RUN/delays.tmp" && mv "$RUN/delays.tmp" "$RUN/delays.json"
+			jq -n -c --slurpfile all "$RUN/delays.json" '{ok:false,error:"Сервер не ответил (возможно, недоступен напрямую)",delays:$all[0]}'
+		fi
+		return 0
+	fi
+	# параллельный пинг всех серверов (через файлы: <(...) не работает в sh)
+	jq -r '.[]|[.id,.server,(.port|tostring)]|@tsv' "$SERVERS" 2>/dev/null > "$RUN/pingtab"
+	local pids="" result="{}" s
+	while IFS="$TAB" read -r id host port; do
+		[ -n "$id" ] && [ -n "$host" ] && [ -n "$port" ] || continue
+		( ms="$(ping_one_direct "$host" "$port")"; printf '%s\t%s\n' "$id" "${ms:-FAIL}" > "$RUN/pingd.$id" ) &
+		pids="$pids $!"
+	done < "$RUN/pingtab"
+	rm -f "$RUN/pingtab"
+	for p in $pids; do wait "$p" 2>/dev/null; done
+	cat "$RUN"/pingd.* 2>/dev/null > "$RUN/pingres"
+	while IFS="$TAB" read -r id ms; do
+		[ -n "$id" ] || continue
+		if [ "$ms" = "FAIL" ] || [ -z "$ms" ]; then
+			result="$(printf '%s' "$result" | jq -c --arg id "$id" 'del(.[$id])')"
+		else
+			result="$(printf '%s' "$result" | jq -c --arg id "$id" --argjson d "$ms" '. + {($id):$d}')"
+		fi
+	done < "$RUN/pingres"
+	rm -f "$RUN/pingres"
+	rm -f "$RUN"/pingd.*
+	printf '%s' "$result" > "$RUN/delays.json"
+	jq -n -c --slurpfile d "$RUN/delays.json" '{ok:true,delays:$d[0],direct:true}'
+}
+
 cmd_status() {
 	local running=false ready=false active="" up=0 down=0 since=0 err="" now
 	is_running && running=true
@@ -840,7 +913,7 @@ cmd_status() {
 		now="$(api GET /proxies/proxy | jq -r '.now // empty' 2>/dev/null)"
 		[ "$now" = "auto" ] && now="$(api GET /proxies/auto | jq -r '.now // empty' 2>/dev/null)"
 		active="${now#s-}"
-		api GET /connections > "$RUN/conn.json" 2>/dev/null
+		api GET /connections > "$RUN/conn.json.tmp" 2>/dev/null && mv "$RUN/conn.json.tmp" "$RUN/conn.json"
 		up="$(jq -r '.uploadTotal // 0' "$RUN/conn.json" 2>/dev/null)"
 		down="$(jq -r '.downloadTotal // 0' "$RUN/conn.json" 2>/dev/null)"
 		since="$(cat "$RUN/up_since" 2>/dev/null)"
@@ -928,6 +1001,7 @@ case "$1" in
 	clearlog)   cmd_clearlog ;;
 	check)      cmd_check ;;
 	ping)       cmd_ping "$2" ;;
+	ping-direct) cmd_ping_direct "$2" ;;
 	devices)    cmd_devices ;;
 	logs)       cmd_logs ;;
 	connect)    cmd_connect ;;
